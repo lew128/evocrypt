@@ -205,7 +205,6 @@ and depend on human-generated passwords.  Fix one or the other, and NSA
 gets nothing.  I can't do anything about the password problem for
 general use, but this is an alternative to their unbreakable standards.
 
-
 There must be a proof of the difficulty of determining the prng
 sequence being proportional, at least, to the number of bits
 of entropy multiplied by the number of operations producing entropy.
@@ -231,7 +230,45 @@ program with the password before applying that randomness to a
 cipher mechanism, which mechanism is guaranteed secure.
 
 If you make something regular, you make it breakable, given
-some level of tech.  NSA has made things regular, and clearly
-have developed the tech to compute AES fast enough to make
+some level of tech.  NSA standards have made things regular. Clearly
+NSA have developed the tech to compute AES fast enough to make
 password attacks feasible.  Irregular is good in crypto.
+
+------
+
+Do I think this is breakable? Maybe, but only with considerable
+effort and needing very large amounts of traffic.
+
+Individual elements mostly pass Dieharder, at worst 5 'weak' out of >100
+tests. The combination of the elements do better, 100 tests pass.
+
+Very likely NSA has better measures of randomness than Dieharder
+has, but I don't think that matters, because cryptographic PRNGs are NOT
+predictable, and a mere weakness in their number stream is not (I think,
+but am not a cryptologist) enough to know for certain), enough to read
+the encrypted message.
+
+It is important to state that the implementation here is NOT 'security
+by obscurity'. It is security by cryptographic quality PRNGs + XOR,
+known to be unbreakable.
+
+The overly-elaborate and very slow mechanisms entirely prevent, I believe, any
+password attacks because that is computationally infeasible. The
+mechanism is not a simple one that can be unrolled into a hardware
+pipeline, so no ASIC speedup is possible.
+
+Any weaknesses in a PRNG will produce non-random cipher streams, and an
+attacker would combine that with probabilities of individual characters
+to understand the mechanism. But it doesn't help if the mechanism is
+deep and opaque.
+
+Given the plaintext and ciphertext encyclopedia and the program that
+encrypted it, I assert that it is computationally infeasible to work
+back to the password because of the depth of the mechanism and the many
+branch points in the code. That was the goal of this program.
+
+Add to that the evolution of lines of descent via the ease of adding
+computationally-equivalent functions and each program producing new
+versions of itself, combined with limiting traffic for each version,
+and NSA's problem is impossible.
 
