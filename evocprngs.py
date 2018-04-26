@@ -24,6 +24,9 @@ import os
 import sys
 import getopt
 import time
+import random
+import glob
+import struct
 from array     import array
 from evofolds  import FoldInteger
 from evohashes import HASHES, HASH0
@@ -133,8 +136,10 @@ class CRYPTO :
 
 
 # I will replace all of these specialized crypto functions with a single
-# function that uses a random set of PRNGs. Took a while to understand
-# that.
+# function that uses a random set of PRNGs. I was intending to produce
+# a class to do that, didn't see that it replaces these two.
+
+# That will be merged into the CRYPTO class. This will take a while.
 
 class LcgCrypto() :
     """
@@ -145,6 +150,9 @@ class LcgCrypto() :
 
     This uses randomly chosen primes for the two constants, and
     increasing primes for the lags to produce the longest cycles.
+
+    I don't know where I got this algorithm, but I can't find a ref.
+    It seems a genealization of the idea behind the LCG, but ...
     """
 
     def __init__( self, the_rnt, n_prngs, prng_bit_width, lcg_depth ) :
@@ -451,7 +459,7 @@ class PrngsCrypto( LcgCrypto ) :
     pass
 
 
-def generate_random_table( the_rnt, N, bitwidth ) :
+def generate_random_table( the_rnt, n_bytes, bitwidth ) :
     # generate N bytes of random data in 64-bit hexadecimal words
     # I used this to generate the first-generation evocrypt.py'
     # 4K_Constant bytes.
@@ -461,7 +469,7 @@ def generate_random_table( the_rnt, N, bitwidth ) :
 
     # this is 4K bytes as lines of 8-byte words in hexadecimal
     # 4 words per line
-    for this_prng in range( int( N / ( 8 * 4 ) ) ) :
+    for this_prng in range( int( n_bytes / ( 8 * 4 ) ) ) :
         the_line = ''
         for line_count in range( 4 ) :
             the_value = lcg_crypto.next( bitwidth, 1 )
@@ -498,8 +506,6 @@ CRYPTO_PRNG_FUNCTIONS = [ HashCrypto, LcgCrypto ]
 
 if __name__ == "__main__" :
 
-    import random 
-
     SHORT_ARGS = "hp="
     LONG_ARGS  = [  'help' , 'password=', 'test=' ]
 
@@ -511,8 +517,8 @@ if __name__ == "__main__" :
     try :
         OPTS, ARGS = getopt.getopt( sys.argv[ 1 : ], SHORT_ARGS, LONG_ARGS )
 
-    except getopt.GetoptError as Err :
-        print( "getopt.GetoptError = ", Err )
+    except getopt.GetoptError as err :
+        print( "getopt.GetoptError = ", err )
         sys.exit( -2 )
 
     for o, a in OPTS :
@@ -528,10 +534,11 @@ if __name__ == "__main__" :
 
     # need a random factor to prevent repeating pseudo-random sequences
     random.seed()
-
     PASSPHRASE = 'this is a seed' + hex( random.getrandbits( 128 ) )
-
     THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
+
+    BIN_VECTOR = array( 'L' )
+    BIN_VECTOR.append( 0 )
 
     if 'generate_random_table' in TEST_LIST :
         print( generate_random_table( THE_RNT.password_hash, 4096, 64 ) )
@@ -544,9 +551,6 @@ if __name__ == "__main__" :
         INTEGER_WIDTH = 128
         LCG_DEPTH     = 32
         DIEHARDER_MAX_INTEGER   = ( 1 << 64 ) - 1
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
 
         # need a random factor to prevent repeating pseudo-random sequences
         random.seed()
@@ -564,11 +568,6 @@ if __name__ == "__main__" :
     if 'lcg_crypto_rate' in TEST_LIST :
         FP = os.fdopen( sys.stdout.fileno(), 'wb' )
 
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
-
         THE_PRNG = LcgCrypto( THE_RNT, 9, 128, 31 )
 
         print( 'twister crypto byte rate = ',
@@ -576,16 +575,6 @@ if __name__ == "__main__" :
 
     if 'hash_crypto' in TEST_LIST :
         FP = os.fdopen( sys.stdout.fileno(), 'wb' )
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating pseudo-random sequences
-        random.seed()
-
-        PASSPHRASE = 'this is a seed' + hex( random.getrandbits( 128 ) )
-
-        THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
 
         THE_PRNG = HashCrypto( THE_RNT, 19, 64, 11 )
 
@@ -598,16 +587,6 @@ if __name__ == "__main__" :
 
     if 'hash_crypto_rate' in TEST_LIST :
         FP = os.fdopen( sys.stdout.fileno(), 'wb' )
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating pseudo-random sequences
-        random.seed()
-
-        PASSPHRASE = 'this is a seed' + hex( random.getrandbits( 128 ) )
-
-        THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
 
         THE_PRNG = HashCrypto( THE_RNT, 19, 64, 11 )
 
@@ -634,19 +613,12 @@ if __name__ == "__main__" :
 #  diehard_birthdays|   0|       100| 100|0.23131660|  PASSED
 # then it stopped, apparently because I didn't have enough large files.
 
-        import glob
-        import struct
 
         N = 1024*1024*1024*1024
 #        N = 8*1024*1024
         N_COUNT = 0
 
         FP = os.fdopen( sys.stdout.fileno(), 'wb' )
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        THE_RNT = RNT( 4096, 1, 'desktop', 'this is  seed' )
 
         THIS_CRYPTO = CRYPTO( 'this is a phrase', 'desktop', 1 )
         ENCODE = THIS_CRYPTO.next()
@@ -790,27 +762,14 @@ is 10X for pure hash0 compared to CRYPTO. Need to try Hash1 again, then
 work through CRYPTO code and also make sure HashCrypto works, which it
 does not just now.
         """
-        import glob
-        import struct
-
 #        N = 1024*1024*1024*1024
         N = 8*1024*1024
         N_COUNT = 0
 
         FP = os.fdopen( sys.stdout.fileno(), 'wb' )
 
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating pseudo-random sequences
-        random.seed()       # includes local entropy, so this doesn't repeat
-
         # Don't need to decode this, just defeat dieharder.
         # Password hash is the entropy for initializing the hash.
-        # Decoding is not a goal, so incorporate local entropy
-        # to get fair test via dieharder.
-        PASSPHRASE = "this is a brand new phrase" + \
-                        hex( random.getrandbits( 128 ) )
         THIS_CRYPTO = CRYPTO( PASSPHRASE, 'desktop', 1 )
         ENCODE = THIS_CRYPTO.next()
 

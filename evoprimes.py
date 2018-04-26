@@ -126,7 +126,7 @@ LOW_PRIMES = [
     9803,9811,9817,9829,9833,9839,9851,9857,9859,9871,9883,9887,9901,
     9907,9923,9929,9931,9941,9949,9967,9973,
     ]
-def rabinMiller( n ) :
+def rabin_miller( the_candidate ) :
     """
     Rabin-Miller algorithm.
 
@@ -134,7 +134,7 @@ def rabinMiller( n ) :
     into '>> 1' to prevent it complaining about floating point values.
 
     """
-    s = n - 1
+    s = the_candidate - 1
     t = 0
     while s & 0x01 == 0:
         s  = s >> 1
@@ -142,46 +142,50 @@ def rabinMiller( n ) :
 
     k = 0
     while k < 128 :
-        a = random.randrange( 2, n - 1 )
+        a = random.randrange( 2, the_candidate - 1 )
         # a^s is computationally infeasible.  We need a more intelligent
         #  approach
         # v = ( a**s ) % n
         # python's core math module can do modular exponentiation
-        v = pow( int( a ), int( s ), n ) #where values are (num,exp,mod)
+        # where values are (num,exp,mod)
+        v = pow( int( a ), int( s ), the_candidate )
 #        print( "a=", a, "v=", v )
         if v != 1:
             i = 0
-            while v != ( n - 1 ) :
+            while v != ( the_candidate - 1 ) :
                 if i == t - 1 :
 #                    print( "false", v, i, t )
                     return False
                 else:
                     i = i + 1
-                    v = ( v**2 ) % n
+                    v = ( v**2 ) % the_candidate
         k += 2
 #    print( "true", k )
     return True
 
-def isPrime( n ):
+def is_prime( the_number ):
     """ low_primes is all primes (sans 2, which is covered by the
-    bitwise and operator) under 1000. taking n modulo each lowPrime allows
+    bitwise and operator) under 10000. taking n modulo each lowPrime allows
     us to remove a huge chunk of composite numbers from our potential pool
     without resorting to Rabin-Miller.
 
     """
-    if ( n >= 3 ) :
-        if ( n & 1 != 0 ):
+    if ( the_number >= 3 ) :
+        if ( the_number & 1 != 0 ):
             for p in LOW_PRIMES:
-                if ( n == p ) :
+                if ( the_number == p ) :
                     return True
 
-                if ( n % p == 0 ) :
+                if ( the_number % p == 0 ) :
                     return False
 
-            return rabinMiller( n )
+            return rabin_miller( the_number )
     return False
 
-def generateLargePrime(k):
+def generate_large_prime(k):
+    """
+    Beginning with random-within-a-range N, find the next prime.
+    """
     #k is the desired bit length
     r = 100 * ( math.log( k, 2 ) + 1 ) #number of attempts max
     r_ = r
@@ -190,7 +194,7 @@ def generateLargePrime(k):
         #unusable for serious crypto purposes
         n  = random.randrange( 2**( k - 1 ), 2**( k ) )
         r -= 1
-        if isPrime( n ) == True:
+        if is_prime( n ) == True:
             return n
 
     return "Failure after "+ r_ + " tries."
@@ -216,9 +220,9 @@ def get_next_higher_prime( beginning_integer ) :
         n = begin_integer + 1
 
     # assume there will be a prime within 1000 * 2
-    # isPrime guarantees 64 tries of Rabin-Miller
-    for i in range( 10000 ) :   
-        if isPrime( n ) == True:
+    # is_prime guarantees 64 tries of Rabin-Miller
+    for _ in range( 10000 ) :   
+        if is_prime( n ) :
             return n
         else :
             n += 2
@@ -239,8 +243,8 @@ if __name__ == "__main__" :
                               9999943, 9999971, 9999973, 9999991,104729
                               ]
     for THIS_PRIME in PRIME_NUMBERS :
-        print( isPrime( THIS_PRIME     ) )
-        print( isPrime( THIS_PRIME + 1 ) )
-        print( isPrime( THIS_PRIME + 4 ) )
+        print( is_prime( THIS_PRIME     ) )
+        print( is_prime( THIS_PRIME + 1 ) )
+        print( is_prime( THIS_PRIME + 4 ) )
 
 

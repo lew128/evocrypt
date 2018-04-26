@@ -109,7 +109,7 @@ class HASH0( ) :
         #
         # need a semi-random seed from the entropy bits
 
-        for i in range( hash_depth ) :
+        for _ in range( hash_depth ) :
             the_integer = rnt.randint( integer_width )
             self.entropy_bits ^= the_integer
 
@@ -222,8 +222,8 @@ class HASH0( ) :
         integer_width values.
         """
         return_value = 0
-        for i in range( self.hash_depth ) :
-            return_value ^= self.integer_vector[ i ]
+        for vector_index in range( self.hash_depth ) :
+            return_value ^= self.integer_vector[ vector_index ]
 
         hex_string = hex( return_value )
         if 'L' in hex_string :
@@ -274,7 +274,7 @@ class HASH1( HASH0 ) :
         #
         # need a semi-random seed from the entropy bits
 
-        for i in range( hash_depth ) :
+        for _ in range( hash_depth ) :
             integer_0 = rnt.randint( integer_width )
             self.entropy_bits ^= integer_0
 
@@ -416,8 +416,8 @@ if __name__ == "__main__" :
     try :
         OPTS, ARGS = getopt.getopt( sys.argv[ 1 : ], SHORT_ARGS, LONG_ARGS )
 
-    except getopt.GetoptError as Err :
-        print( "getopt.GetoptError = ", Err )
+    except getopt.GetoptError as err :
+        print( "getopt.GetoptError = ", err )
         sys.exit( -2 )
 
     for o, a in OPTS :
@@ -431,7 +431,14 @@ if __name__ == "__main__" :
         if o in ( "--test" ) :
             TEST_LIST.append( a )
 
-    THE_RNT = RNT( 4096, 2, 'desktop', 'this is a passphrase' )
+    # need a random factor to prevent repeating random sequences
+    random.seed()
+
+    PASSPHRASE = 'this is a passphrase' + hex( random.getrandbits( 128 ) )
+    THE_RNT = RNT( 4096, 2, 'desktop', PASSPHRASE )
+
+    BIN_VECTOR = array( 'L' )
+    BIN_VECTOR.append( 0 )
 
     if 'all' in TEST_LIST :
 
@@ -445,11 +452,10 @@ if __name__ == "__main__" :
             print( "The hash value returned = ", hex( HASH_VALUE ) )
 
     if 'hashes' in TEST_LIST :
-        THE_RNT = RNT( 4096, 2, 'desktop', 'this is a passphrase' )
 
         H0 = HASHES( THE_RNT, 128, 19 )
 
-        for i in range( 10 ) :
+        for _ in range( 10 ) :
             HASH_FUNCTION = H0.next()
             HASH_FUNCTION.update( "fred" )
 
@@ -466,15 +472,6 @@ if __name__ == "__main__" :
     # in crypto terms.
     if 'new' or 'hash0' in TEST_LIST :
         FP = os.fdopen( sys.stdout.fileno(), 'wb' )
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating random sequences
-        random.seed()
-
-        PASSPHRASE = 'this is a passphrase' + hex( random.getrandbits( 128 ) )
-        THE_RNT = RNT( 4096, 2, 'desktop', PASSPHRASE )
 
         # ( password, integer_width, hash_depth ) :
         THE_HASH = HASH0( THE_RNT, 64, 31 )
@@ -498,15 +495,6 @@ if __name__ == "__main__" :
     # weak one 'runs', one 'sts_serial', one rbg_bitdist
     if 'hash1' in TEST_LIST :
         FP = os.fdopen( sys.stdout.fileno(), 'wb' )
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating random sequences
-        random.seed()
-
-        PASSPHRASE = 'this is a passphrase' + hex( random.getrandbits( 128 ) )
-        THE_RNT = RNT( 4096, 2, 'desktop', PASSPHRASE )
 
         # ( password, integer_width, hash_depth ) :
         THE_HASH = HASH1( THE_RNT, 64, 31 )

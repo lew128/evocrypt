@@ -26,8 +26,6 @@ TODO :
 import sys
 import traceback
 import getopt
-import random
-import hashlib
 
 #SINGLE_PROGRAM_FROM_HERE
 
@@ -74,11 +72,11 @@ def debug( the_debug_message, debug_object, debug_level ) :
     printed to stdout.
     """
 
-    if debug_level == None :
+    if debug_level is None :
         debug_level = 1
 
     if VERBOSITY_LEVEL > debug_level or VERBOSITY_LEVEL == debug_level :
-        if debug_object == None :
+        if debug_object is None :
             if DEBUG_FD :
                 DEBUG_FD.write( str( the_debug_message ) + "\n" )
                 if debug_level in [ 0, 1, 3 ] :

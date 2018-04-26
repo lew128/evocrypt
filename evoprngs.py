@@ -115,7 +115,7 @@ class KnuthMMIX() :
         """
         return_value = 0
         while return_value < ( 1 << bit_width * 2 ) :
-            for no_use_i in range( cycles * self.paranoia_level ) :
+            for _ in range( cycles * self.paranoia_level ) :
                 self.seed = 6364136223846793005 * \
                     self.seed + 1442695040888963407
                 return_value ^= self.seed
@@ -153,7 +153,7 @@ class KnuthNewLib() :
         """
         return_value = 0
         while return_value < ( 1 << bit_width * 2 ) :
-            for no_use_i in range( cycles * self.paranoia_level ) :
+            for _ in range( cycles * self.paranoia_level ) :
                 self.seed0 = 6364136223846793005 * \
                     self.seed0 +1442695040888963407
                 self.seed1 = 6364136223846793005 * self.seed1 + 1
@@ -208,7 +208,7 @@ class LongPeriod5() :
         return_value = 0
         while return_value < ( 1 << bit_width * 2 ) :
             return_value <<= 32
-            for nouse_i in range( cycles * self.paranoia_level ) :
+            for _ in range( cycles * self.paranoia_level ) :
                 t = (self.x ^ ( self.x >> 7))
                 self.x  = self.y
                 self.y  = self.z
@@ -255,7 +255,7 @@ class LongPeriod256() :
         self.Q = []
 
         entropy = self.the_rnt.password_hash
-        for nouse_i in range( 256 ) :
+        for _ in range( 256 ) :
             entropy  = the_rnt.next_random_value( entropy, 32 )
             entropy ^= the_rnt.next_random_value( entropy, 32 )
             self.Q.append( entropy )
@@ -267,12 +267,12 @@ class LongPeriod256() :
         """
         returns a bit_width integer
         """
-        a = 809430660
-        for unused_i in range( cycles * self.paranoia_level ) :
+        a_constant = 809430660
+        for _ in range( cycles * self.paranoia_level ) :
             # point to the next element of the vector
             self.next_index = ( self.next_index + 1 ) % 256
 
-            t  = a * self.Q[ self.next_index ] + self.c
+            t  = a_constant * self.Q[ self.next_index ] + self.c
             self.c = ( t >> 32 )
 
             t &= self.integer_mask
@@ -286,6 +286,8 @@ class CMWC4096() :
     near-record period, more than 10^33000 times as long as that of the
     Twister. (2^131104 vs. 2^19937)
     http://school.anhb.uwa.edu.au/personalpages/kwessen/shared/Marsaglia03.html
+
+    This is closer to what I called LGC. 
     """
 
     def __init__( self, the_rnt, integer_width, prng_depth, paranoia_level ) :
@@ -296,13 +298,13 @@ class CMWC4096() :
         self.integer_mask   = ( 1 << integer_width ) - 1
         self.paranoia_level = paranoia_level
         self.next_index = 4095
-        self.Q = []
+        self.integer_array  = []
         self.c = get_next_higher_prime( self.the_rnt.password_hash % 809430000 )
 
         entropy = self.the_rnt.password_hash
-        for nouse_i in range( 4096 ) :
+        for _ in range( 4096 ) :
             entropy += the_rnt.next_random_value( entropy, integer_width )
-            self.Q.append( entropy & self.integer_mask )
+            self.integer_array.append( entropy & self.integer_mask )
 
         # subtracted 660 to make sure the prime is always lower than 809430660
         self.c = get_next_higher_prime( self.the_rnt.password_hash % 809430000 )
@@ -311,21 +313,21 @@ class CMWC4096() :
         """
         returns a bit_width integer
         """
-        a = 18782
-        r = 0xfffffffe
+        a_constant = 18782
+        r_constant = 0xfffffffe
 
-        for nouse_j in range( cycles * self.paranoia_level ) :
+        for _ in range( cycles * self.paranoia_level ) :
             self.next_index = ( self.next_index + 1 ) & 4095
-            t = a * self.Q[ self.next_index ] + self.c
+            t = a_constant * self.integer_array[ self.next_index ] + self.c
             self.c = ( t >> 32 )
             x = t + self.c
             if x < self.c :
                 x += 1
                 self.c += 1
-            self.Q[ self.next_index ] = r - x
-            self.Q[ self.next_index ] &= self.integer_mask
+            self.integer_array[ self.next_index ] = r_constant - x
+            self.integer_array[ self.next_index ] &= self.integer_mask
 
-        return self.Q[ self.next_index ]
+        return self.integer_array[ self.next_index ]
 
 # http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.43.3639&rep=rep1&type=pdf
 
@@ -458,7 +460,7 @@ class LFSR() :
         lfsr cannot have a shorter cycle, from the theory, so this
         implementation is wrong.
         """
-        for nouse_x in range( 1 + cycles * self.paranoia_level ) :
+        for _ in range( 1 + cycles * self.paranoia_level ) :
             self.period += 1
             bit = self.lfsr & 0x01
             self.lfsr >>= 1
@@ -501,7 +503,7 @@ class LFSR() :
         Standard next function adapted to this PRNG.
         """
         return_value = 0
-        for nouse_i in range( bit_width ) :
+        for _ in range( bit_width ) :
             return_value <<= 1 
             return_value  += self.next_bit( cycles )
 
@@ -547,7 +549,7 @@ class LCG():
         self.max_integer_mask     = ( 1 << integer_width ) - 1
         self.max_integer          =   1 << integer_width 
 
-        self.integer_vector = [ 0 for i in range( self.integer_vector_size ) ]
+        self.integer_vector = [ 0 for _ in range( self.integer_vector_size ) ]
 
         #
         # initialize the lcg array beginning with a hash of the seed
@@ -587,8 +589,8 @@ class LCG():
         for vector_index in range( self.integer_vector_size ) :
 
             # the hash of the previous part of the array
-            for j in range( vector_index ) :
-                the_hash.update( str( self.integer_vector[ j ] ) )
+            for int_index in range( vector_index ) :
+                the_hash.update( str( self.integer_vector[ int_index ] ) )
 
             integer_hash = the_hash.intdigest()
             integer_hash = self.the_fold.fold_it( integer_hash,
@@ -613,7 +615,7 @@ class LCG():
         numbers, so we return the middle 64 bits.
         """
 
-        for this_cycle in range( cycles ) :
+        for _ in range( cycles ) :
 
             lagged_index = ( self.index + self.lag ) % self.integer_vector_size
 
@@ -639,18 +641,18 @@ class LCG():
 
 
 
-def byte_rate( the_function, result_width, N ) :
+def byte_rate( the_function, result_width, n_values ) :
     """
     The_function is one of the crypto or PRNG functions with a 'next'.
     Result_width is the desired width of the result of that function in bits.
     N is the number of results to compute before returning bytes/second.
     """
     beginning_time = int( time.time() )
-    for I in range( N ) :
+    for _ in range( n_values ) :
         this_result = the_function.next( result_width , 1 )
     ending_time = int( time.time() )
 
-    return ( N * ( result_width / 8 ) ) / ( ending_time - beginning_time )
+    return ( n_values * ( result_width / 8 ) ) / ( ending_time - beginning_time)
 
 #SINGLE_PROGRAM_TO_HERE
 
@@ -675,8 +677,6 @@ def usage() :
 
 if __name__ == "__main__" :
 
-    import random 
-
     SHORT_ARGS = "hp="
     LONG_ARGS  = [  'help' , 'int_width=', 'password=', 'test=' ]
 
@@ -690,8 +690,8 @@ if __name__ == "__main__" :
     try :
         OPTS, ARGS = getopt.getopt( sys.argv[ 1 : ], SHORT_ARGS, LONG_ARGS )
 
-    except getopt.GetoptError as Err :
-        print( "getopt.GetoptError = ", Err )
+    except getopt.GetoptError as err :
+        print( "getopt.GetoptError = ", err )
         sys.exit( -2 )
 
     for o, a in OPTS :
@@ -708,6 +708,14 @@ if __name__ == "__main__" :
         if o in ( "--password") or o in ( "-p" ) :
             PASSWORD = a
 
+    # need a random factor to prevent repeating pseudo-random sequences
+    random.seed()
+
+    PASSWORD += hex( random.getrandbits( 128 ) )
+    THE_RNT = RNT( 4096, 1, 'desktop', PASSWORD )
+    BIN_VECTOR = array( 'L' )
+    BIN_VECTOR.append( 0 )
+
     if 'lcg' in TEST_LIST :
         #  7.97e+05 rands/second Passes dieharder
         # passes birthdays, operm5, rank 32x32, weak or fails rank
@@ -719,19 +727,6 @@ if __name__ == "__main__" :
         INTEGER_WIDTH = 128
         LCG_DEPTH     = 32
         MAX_INTEGER = (1 << INTEGER_WIDTH ) - 1
-
-        # 
-        #  128 bit widths = 7.54e+05 rands/second
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating pseudo-random sequences
-        random.seed()
-
-        PASSWORD += hex( random.getrandbits( 128 ) )
-        THE_RNT = RNT( 4096, 1, 'desktop', PASSWORD )
-
 
         MAX_INTEGER = ( 1 << INTEGER_WIDTH ) - random.getrandbits( 36 )
 
@@ -756,15 +751,6 @@ if __name__ == "__main__" :
         LCG_DEPTH     = 32
         DIEHARDER_MAX_INTEGER   = ( 1 << 64 ) - 1
 
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating pseudo-random sequences
-        random.seed()
-
-        PASSWORD += hex( random.getrandbits( 128 ) )
-        THE_RNT = RNT( 4096, 1, 'desktop', PASSWORD )
-
         # ( self, the_rnt, integer_width, prng_depth, paranoia_level )
         THE_PRNG = KnuthNewLib( THE_RNT, 64, 32, 2 ) 
 
@@ -783,15 +769,6 @@ if __name__ == "__main__" :
         LCG_DEPTH     = 32
         DIEHARDER_MAX_INTEGER   = ( 1 << 64 ) - 1
 
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating pseudo-random sequences
-        random.seed()
-
-        PASSWORD += hex( random.getrandbits( 128 ) )
-        THE_RNT = RNT( 4096, 1, 'desktop', PASSWORD )
-
         # ( self, the_rnt, integer_width, prng_depth, paranoia_level )
         THE_PRNG = KnuthMMIX( THE_RNT, 64, 32, 2 ) 
 
@@ -809,16 +786,6 @@ if __name__ == "__main__" :
         INTEGER_WIDTH = 64
         LCG_DEPTH     = 32
         DIEHARDER_MAX_INTEGER   = ( 1 << 64 ) - 1
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating pseudo-random sequences
-        random.seed()
-
-        PASSWORD += hex( random.getrandbits( 128 ) )
-
-        THE_RNT = RNT( 4096, 1, 'desktop', PASSWORD )
 
         # ( self, the_rnt, integer_width, prng_depth, paranoia_level )
         THE_PRNG = LongPeriod5( THE_RNT, 64, 32, 2 ) 
@@ -840,16 +807,6 @@ if __name__ == "__main__" :
         INTEGER_WIDTH = 32
         LCG_DEPTH     = 32
         DIEHARDER_MAX_INTEGER   = ( 1 << 64 ) - 1
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating pseudo-random sequences
-        random.seed()
-
-        PASSWORD += hex( random.getrandbits( 128 ) )
-
-        THE_RNT = RNT( 4096, 1, 'desktop', PASSWORD )
 
         # ( self, the_rnt, integer_width, prng_depth, paranoia_level )
         THE_PRNG = LongPeriod256( THE_RNT, 32, 32, 2 ) 
@@ -873,16 +830,6 @@ if __name__ == "__main__" :
         LCG_DEPTH     = 32
         DIEHARDER_MAX_INTEGER   = ( 1 << 64 ) - 1
 
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating pseudo-random sequences
-        random.seed()
-
-        PASSWORD += hex( random.getrandbits( 128 ) )
-
-        THE_RNT = RNT( 4096, 1, 'desktop', PASSWORD )
-
         # ( self, the_rnt, integer_width, prng_depth, paranoia_level )
         THE_PRNG = CMWC4096( THE_RNT, 32, 32, 2 ) 
 
@@ -905,25 +852,25 @@ if __name__ == "__main__" :
             # need a random factor to prevent repeating pseudo-random sequences
             random.seed()       # includes local entropy, so this doesn't repeat
 
-            PASSWORD += hex( random.getrandbits( 128 ) )
+            PASSPHRASE = PASSWORD + hex( random.getrandbits( 128 ) )
 
-            THE_RNT = RNT( 4096, 1, 'desktop', PASSWORD )
+            THIS_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
 
             #    ( the_rnt, integer_width, prng_depth, paranoia_level )
-            lfsr = LFSR( THE_RNT, INT_WIDTH, 20, 1 )
+            THE_LFSR = LFSR( THIS_RNT, INT_WIDTH, 20, 1 )
   
-            beginning_time = int( time.time() )
+            BEGINNING_TIME = int( time.time() )
 
             N = 1024 * 1024 * 1024
             for i in range( 1024 ):
                 for j in range( 1024 * 1024 ) :
-                    lfsr.next( 64, 1 )
+                    THE_LFSR.next( 64, 1 )
                 print( i, " million ", INT_WIDTH, "bit cycles" )
 
-            ending_time = int( time.time() )
+            ENDING_TIME = int( time.time() )
 
-            print( "byte_rate = ", ( N * 8 ) / ( ending_time - beginning_time) )
-            print( lfsr.periods )
+            print( "byte_rate = ", ( N * 8 ) / ( ENDING_TIME - BEGINNING_TIME) )
+            print( THE_LFSR.periods )
 
     if 'lfsr_periods0' in TEST_LIST :
         # tests 20 samples of seeds for each individual LFSR tap setting
@@ -943,19 +890,19 @@ if __name__ == "__main__" :
                 THE_RNT = RNT( 4096, 1, 'desktop', PASSWORD )
 
                 #    ( the_rnt, integer_width, prng_depth, paranoia_level )
-                lfsr = LFSR( THE_RNT, INT_WIDTH, 20, 1, this_tap )
+                THE_LFSR = LFSR( THE_RNT, INT_WIDTH, 20, 1, this_tap )
   
-                beginning_time = int( time.time() )
+                BEGINNING_TIME = int( time.time() )
 
                 N = 1024 * 1024
                 for i in range( N ) :
-                    lfsr.next( 64, 1 )
+                    THE_LFSR.next( 64, 1 )
 
-                ending_time = int( time.time() )
+                ENDING_TIME = int( time.time() )
 
-                print( '\t', hex( THE_RNT.password_hash ), lfsr.periods, 
+                print( '\t', hex( THE_RNT.password_hash ), THE_LFSR.periods, 
                         "byte_rate = ",
-                            int(( N * 8 ) / ( ending_time - beginning_time) ) )
+                            int(( N * 8 ) / ( ENDING_TIME - BEGINNING_TIME) ) )
 
     if 'lfsr_periods1' in TEST_LIST :
         for this_tap in [ ( 16, 4, 2, 12 ), ( 11, 5, 4, 3 ) ] :
@@ -972,47 +919,35 @@ if __name__ == "__main__" :
                 THE_RNT = RNT( 4096, 1, 'desktop', PASSWORD )
 
                 #    ( the_rnt, integer_width, prng_depth, paranoia_level )
-                lfsr = LFSR( THE_RNT, INT_WIDTH, 20, 1, this_tap )
+                THE_LFSR = LFSR( THE_RNT, INT_WIDTH, 20, 1, this_tap )
   
-                beginning_time = int( time.time() )
+                BEGINING_TIME = int( time.time() )
 
                 N = 1024 * 102
                 for i in range( N ) :
-                    lfsr.next( 64, 1 )
+                    THE_LFSR.next( 64, 1 )
 
-                ending_time = int( time.time() )
+                ENDING_TIME = int( time.time() )
 
                 sys.stdout.write( '\t')
-                sys.stdout.write( hex( lfsr.tap_mask ) + ' ' )
+                sys.stdout.write( hex( THE_LFSR.tap_mask ) + ' ' )
                 sys.stdout.write( hex( THE_RNT.password_hash ) + ' ' )
-                sys.stdout.write( str( lfsr.periods ) + ' ' )
+                sys.stdout.write( str( THE_LFSR.periods ) + ' ' )
                 sys.stdout.write( "byte_rate = " )
                 sys.stdout.write( str(
-                                ( N * 8 ) / ( ending_time - beginning_time) ) )
+                                ( N * 8 ) / ( ENDING_TIME - BEGINING_TIME) ) )
                 sys.stdout.write( '\n' )
                 sys.stdout.flush()
 
     if 'lfsr' in TEST_LIST :
         FP = os.fdopen( sys.stdout.fileno(), 'wb' )
 
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        THE_RNT = RNT( 4096, 1, 'desktop', 'passXE5013C13DACA2ADCF4F92F4FE920' )
-        # need a random factor to prevent repeating pseudo-random sequences
-        random.seed()       # includes local entropy, so this doesn't repeat
-
-        PASSWORD += hex( random.getrandbits( 128 ) )
-
-        print( "instantiating the RNT" )
-        THE_RNT = RNT( 4096, 1, 'desktop', PASSWORD )
-
         print( "instantiating the LFSR" )
         #    ( the_rnt, integer_width, prng_depth, paranoia_level )
-        lfsr = LFSR( THE_RNT, INT_WIDTH, 64, 1 )
+        THE_LFSR = LFSR( THE_RNT, INT_WIDTH, 64, 1 )
 
         while True :
-            BIN_VECTOR[ 0 ] = lfsr.next( 64, 1 )
+            BIN_VECTOR[ 0 ] = THE_LFSR.next( 64, 1 )
             BIN_VECTOR.tofile( FP )
 
 

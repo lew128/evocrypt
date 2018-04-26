@@ -192,6 +192,7 @@ import os
 import getopt
 import hashlib
 import struct
+import shutil
 from array import array
 from evocprngs import LcgCrypto, CRYPTO, LFSR
 from evohashes import HASHES
@@ -371,9 +372,9 @@ def hash_file(filename):
     Returns 64-bits as a hexadecimal
     """
     the_hash = hashlib.sha512()
-    with open(filename, 'rb', buffering=0) as f:
-        for b in iter(lambda : f.read(128*1024), b''):
-            the_hash.update(b)
+    with open(filename, 'rb', buffering=0) as the_file:
+        for the_byte in iter( lambda : the_file.read(128*1024), b'' ) :
+            the_hash.update( the_byte )
 
     byte_digest = the_hash.digest()
     int_digest = int( the_hash.hexdigest(), 16 )
@@ -818,7 +819,6 @@ def usage() :
 #
 if __name__ == "__main__" :
 
-    import         shutil
 
 
 #    print( '#' + __filename__ )
