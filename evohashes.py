@@ -37,8 +37,6 @@ from   array import array
 #
 # Add more hash functions in this section, before the list
 #
-# These pass dieharder through 10 iterations of lagged_sum, 2 or 3
-# judged 'weak'.
 
 class HASHES() :
     """
@@ -526,10 +524,9 @@ if __name__ == "__main__" :
 
             NEW_UPDATE = THE_RANDOM_NUMBER & 0xFF
 
-    # add another test to generate a sequence of pairs of 64-bit integers
+    # add another test generating a sequence of pairs of 64-bit integers
     # which differ from each other in 1 bit, check the distribution of
     # bits that differ between the two hash values produced by the two
-    # used as updates. My initial thought was to use the xor as input to
-    # dieharder, but it would be hopelessly slow.
+    # used as updates. 
     
 

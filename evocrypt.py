@@ -202,8 +202,8 @@ from evofolds  import FoldInteger
 def assemble_program_from_dev_files() :
     """
     All development should be done from the half dozen module files.
-    Those must be in one program so that users don't have a version
-    problem in use.
+    For normal use, those must be in one program so that users don't have
+    a version problem.
 
     This composes a user's program from the development files, and
     returns the text.
@@ -211,8 +211,7 @@ def assemble_program_from_dev_files() :
     I have built in the file names and order. That is rigid, but also
     robust, mixing this code in a different project won't screw it up.
 
-    This worked, the resulting program executed, although I haven't extensively
-    tested the new program yet.
+    This worked, the resulting program executes.
     """
     dev_files = [ 'evoutils.py', 'evofolds.py', 'evoprimes.py', 'evohashes.py',
                   'evornt.py',   'evoprngs.py', 'evocprngs.py', 'evocrypt.py' ]

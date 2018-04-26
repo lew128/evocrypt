@@ -57,9 +57,9 @@ class PRNGs() :
         store all the needed variables, calcualte anything that is
         common to the subsidiary PRNGs.
         """
-        self.prng_functions       = [ LCG, MersenneTwister, VacC,
+        self.prng_functions       = [ LCG, KnuthMMIX, KnuthNewLib,
                                       LongPeriod5, LongPeriod256,
-                                      CMWC4096,
+                                      CMWC4096
                                     ]
         self.the_rnt              = the_rnt
         self.paranoia_level       = paranoia_level
@@ -89,53 +89,9 @@ class PRNGs() :
         return  this_prng( self.the_rnt, self.width_in_bits, self.prng_depth )
 
 
-class MersenneTwister() :
+class KnuthMMIX() :
     """
-    An example of a class of a non-crypto-quality PRNG.
-    """
-    def __init__( self, the_rnt, result_width ) :
-        """
-        This uses the seed to initialize the particular PRNG.
-
-        Returned value is converted to a 128-bit integer by magic
-        related to the type of the value and its size
-        """
-        # crypto functions depend upon the RNT having been fully initialized
-        assert the_rnt.password_hash != 0
-        self.the_rnt                  = the_rnt
-        self.result_width             = result_width
-        self.max_integer_mask         = ( 1 << result_width ) - 1 
-
-        hashes   = HASHES( the_rnt, self.result_width, 17 )
-        the_hash = hashes.next()
-        the_hash.update( self.the_rnt.password_hash )
-        the_hash.update( 'mersenne twister' )
-
-        self.the_fold  = FoldInteger( )
-
-        xor_result = \
-                  self.the_fold.fold_it( the_hash.intdigest(),
-                                     self.result_width )
-
-        # need more entropy, get that from the random numbers
-        new_seed = the_rnt.next_random_value( xor_result, result_width  )
-        random.seed( new_seed )
-
-    def next( self, bit_width, cycles ) :
-        """
-        Returns the next random value
-        """
-        last_value = 0
-        for no_use_x in range( cycles ) :
-            last_value = random.randint( 0, self.max_integer_mask )
-
-        return last_value & ( ( 1 << bit_width ) - 1 )
-
-
-class VaxC() :
-    """
-    Linear congruential used on the VAX.
-    http://school.anhb.uwa.edu.au/personalpages/kwessen/shared/Marsaglia03.html
+    Linear congruential specified by Knuth in his MMIX.
     """
 
     def __init__( self, the_rnt, integer_width, prng_depth, paranoia_level ) :
@@ -147,6 +103,7 @@ class VaxC() :
         self.integer_width  = integer_width
         self.integer_mask   = ( 1 << integer_width ) - 1
         self.paranoia_level = paranoia_level
+        self.the_fold       = FoldInteger( )
 
         self.seed = the_rnt.next_random_value( self.the_rnt.password_hash,
                                             integer_width )
@@ -156,12 +113,61 @@ class VaxC() :
         """
         returns a bit-width integer
         """
-        for no_use_i in range( cycles * self.paranoia_level ) :
-            self.seed = 69069 * self.seed + 362437
+        return_value = 0
+        while return_value < ( 1 << bit_width * 2 ) :
+            for no_use_i in range( cycles * self.paranoia_level ) :
+                self.seed = 6364136223846793005 * \
+                    self.seed + 1442695040888963407
+                return_value ^= self.seed
+
+            return_value ^= ( self.seed << 32 ) 
             self.seed &= self.integer_mask
 
-        print( hex( self.seed ) )
-        return self.seed & ( ( 1 << bit_width ) - 1 )
+        return self.the_fold.fold_it( return_value, bit_width )
+
+class KnuthNewLib() :
+    """
+    Linear congruential specified by Knuth in his MMIX + NewLibMusl
+    """
+
+    def __init__( self, the_rnt, integer_width, prng_depth, paranoia_level ) :
+        """
+        """
+        # crypto functions depend upon the RNT having been fully initialized
+        assert the_rnt.password_hash != 0
+        self.the_rnt        = the_rnt
+        self.integer_width  = integer_width
+        self.integer_mask   = ( 1 << integer_width ) - 1
+        self.paranoia_level = paranoia_level
+        self.the_fold       = FoldInteger( )
+
+        self.seed0 = the_rnt.next_random_value( self.the_rnt.password_hash,
+                                            integer_width )
+        self.seed1 = the_rnt.next_random_value( self.the_rnt.password_hash,
+                                            integer_width )
+        self.next( integer_width, 40 )
+
+    def next( self, bit_width, cycles ) :
+        """
+        returns a bit-width integer
+        """
+        return_value = 0
+        while return_value < ( 1 << bit_width * 2 ) :
+            for no_use_i in range( cycles * self.paranoia_level ) :
+                self.seed0 = 6364136223846793005 * \
+                    self.seed0 +1442695040888963407
+                self.seed1 = 6364136223846793005 * self.seed1 + 1
+                return_value ^= self.seed0
+
+                return_value ^= ( self.seed1 & 0xFFFFFFFF00000000 ) >> 32
+                return_value <<= 32
+                self.seed1 = 6364136223846793005 * self.seed1 + 1
+                return_value += ( self.seed1 & 0xFFFFFFFF00000000 ) >> 32
+
+                self.seed0 &= self.integer_mask
+                self.seed1 &= self.integer_mask
+
+        return self.the_fold.fold_it( self.seed0 ^ return_value, bit_width )
 
 class LongPeriod5() :
     """
@@ -181,6 +187,7 @@ class LongPeriod5() :
         self.integer_width  = integer_width
         self.integer_mask   = ( 1 << integer_width ) - 1
         self.paranoia_level = paranoia_level
+        self.the_fold       = FoldInteger( )
 
         # replace defaults with five random seed values in calling * program */
         self.x = the_rnt.next_random_value( the_rnt.password_hash,
@@ -198,16 +205,21 @@ class LongPeriod5() :
         """
         returns a bit-width integer
         """
-        for nouse_i in range( cycles * self.paranoia_level ) :
-            t = (self.x ^ ( self.x >> 7))
-            self.x  = self.y
-            self.y  = self.z
-            self.z  = self.w
-            self.w  = self.v
-            self.v  = ( self.v ^ ( self.v << 6 ) ) ^ ( t ^ ( t << 13 ) )
-            self.v &= self.integer_mask
+        return_value = 0
+        while return_value < ( 1 << bit_width * 2 ) :
+            return_value <<= 32
+            for nouse_i in range( cycles * self.paranoia_level ) :
+                t = (self.x ^ ( self.x >> 7))
+                self.x  = self.y
+                self.y  = self.z
+                self.z  = self.w
+                self.w  = self.v
+                self.v  = ( self.v ^ ( self.v << 6 ) ) ^ ( t ^ ( t << 13 ) )
+                self.v &= self.integer_mask
 
-        return ( self.y + self.y + 1 ) * self.v & ( ( 1 << bit_width ) - 1 )
+        return_value ^= ( self.y + self.y + 1 ) * \
+            self.v & ( ( 1 << bit_width ) - 1 )
+        return self.the_fold.fold_it( self.seed0 ^ return_value, bit_width )
 
 class LongPeriod256() :
     """
@@ -238,6 +250,7 @@ class LongPeriod256() :
         self.integer_width  = 32
         self.integer_mask   = ( 1 << 32 ) - 1
         self.paranoia_level = paranoia_level
+        self.the_fold       = FoldInteger( )
         self.next_index     = 255
         self.Q = []
 
@@ -735,11 +748,11 @@ if __name__ == "__main__" :
             BIN_VECTOR.tofile( FP )
 #            print( hex( THE_RANDOM_NUMBER )
 
-    if 'vax_c' in TEST_LIST :
+    if 'newlib' in TEST_LIST :
         # 8.17e+05 rands / second, very slow
         FP = os.fdopen( sys.stdout.fileno(), 'wb' )
 
-        INTEGER_WIDTH = 32
+        INTEGER_WIDTH = 64
         LCG_DEPTH     = 32
         DIEHARDER_MAX_INTEGER   = ( 1 << 64 ) - 1
 
@@ -752,18 +765,39 @@ if __name__ == "__main__" :
         PASSWORD += hex( random.getrandbits( 128 ) )
         THE_RNT = RNT( 4096, 1, 'desktop', PASSWORD )
 
-
         # ( self, the_rnt, integer_width, prng_depth, paranoia_level )
-        THE_PRNG = VaxC( THE_RNT, 32, 32, 2 ) 
+        THE_PRNG = KnuthNewLib( THE_RNT, 64, 32, 2 ) 
 
         while True :
-            RN0 = THE_PRNG.next( 32, 1 )
-            RN1 = THE_PRNG.next( 32, 1 )
-            THE_RANDOM_NUMBER  = RN0 << 32
-            THE_RANDOM_NUMBER += RN1
-#            THE_RANDOM_NUMBER = RN0 << 32 + RN1
-            THE_RANDOM_NUMBER &= ( 1 << 64 ) - 1
 
+            THE_RANDOM_NUMBER = THE_PRNG.next( 64, 1 )
+            BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
+            BIN_VECTOR.tofile( FP )
+#            print( hex( THE_RANDOM_NUMBER ) )
+
+    if 'knuth' in TEST_LIST :
+        # 8.17e+05 rands / second, very slow
+        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
+
+        INTEGER_WIDTH = 64
+        LCG_DEPTH     = 32
+        DIEHARDER_MAX_INTEGER   = ( 1 << 64 ) - 1
+
+        BIN_VECTOR = array( 'L' )
+        BIN_VECTOR.append( 0 )
+
+        # need a random factor to prevent repeating pseudo-random sequences
+        random.seed()
+
+        PASSWORD += hex( random.getrandbits( 128 ) )
+        THE_RNT = RNT( 4096, 1, 'desktop', PASSWORD )
+
+        # ( self, the_rnt, integer_width, prng_depth, paranoia_level )
+        THE_PRNG = KnuthMMIX( THE_RNT, 64, 32, 2 ) 
+
+        while True :
+
+            THE_RANDOM_NUMBER = THE_PRNG.next( 64, 1 )
             BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
             BIN_VECTOR.tofile( FP )
 #            print( hex( THE_RANDOM_NUMBER ) )
@@ -772,7 +806,7 @@ if __name__ == "__main__" :
         # 8.17e+05 rands / second, very slow
         FP = os.fdopen( sys.stdout.fileno(), 'wb' )
 
-        INTEGER_WIDTH = 32
+        INTEGER_WIDTH = 64
         LCG_DEPTH     = 32
         DIEHARDER_MAX_INTEGER   = ( 1 << 64 ) - 1
 
@@ -787,7 +821,7 @@ if __name__ == "__main__" :
         THE_RNT = RNT( 4096, 1, 'desktop', PASSWORD )
 
         # ( self, the_rnt, integer_width, prng_depth, paranoia_level )
-        THE_PRNG = LongPeriod5( THE_RNT, 32, 32, 2 ) 
+        THE_PRNG = LongPeriod5( THE_RNT, 64, 32, 2 ) 
 
         while True :
             RN0 = THE_PRNG.next( 32, 1 )
@@ -798,7 +832,6 @@ if __name__ == "__main__" :
 
             BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
             BIN_VECTOR.tofile( FP )
-#            print( hex( THE_RANDOM_NUMBER ) )
 
     if 'lp256' in TEST_LIST :
         # 8.17e+05 rands / second, very slow

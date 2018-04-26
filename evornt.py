@@ -318,12 +318,13 @@ MAX_INTEGER_BIT_WIDTH = 1024
 class WichmannHill(object):
     """
     An implementation of the Wichmann-Hill pseudo-random number generator.
-    This is only used by RNT to ensure there are not cycles
+    This is only used by RNT to ensure there are not cycles, and is not
+    one of the PRNGs for crypto.
 
     The rate is about 300,000 32-bit ints / second in dieharder.
     A version that put 2 32-bit integers together passed dieharder for
-    64-bt randoms through the sts_serial tests and now 7 iterations of
-    rgb_bitdist.
+    64-bt randoms through 26 iterations of rgb_lagged_sum with
+    rank_32x32 and one of 12 rgb_bitdist weak.
     """
 
     mix_0 = [ 171, 172, 170 ]
@@ -1080,8 +1081,7 @@ if __name__ == "__main__" :
         THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
 
         while True :
-            THE_RANDOM_NUMBER = THE_RNT.randint( 64 )
-            BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
+            BIN_VECTOR[ 0 ] = THE_RNT.randint( 64 )
             BIN_VECTOR.tofile( SO )
 #            BIN_VECTOR.tofile( SE )
 
@@ -1101,8 +1101,7 @@ if __name__ == "__main__" :
         THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
 
         while True :
-            THE_RANDOM_NUMBER = THE_RNT.randint1( 64 )
-            BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
+            BIN_VECTOR[ 0 ] = THE_RNT.randint1( 64 )
             BIN_VECTOR.tofile( SO )
 #            BIN_VECTOR.tofile( SE )
 
@@ -1121,8 +1120,7 @@ if __name__ == "__main__" :
         THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
 
         while True :
-            THE_RANDOM_NUMBER = THE_RNT.randint2( 64 )
-            BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
+            BIN_VECTOR[ 0 ] = THE_RNT.randint2( 64 )
             BIN_VECTOR.tofile( SO )
 #            BIN_VECTOR.tofile( SE )
 

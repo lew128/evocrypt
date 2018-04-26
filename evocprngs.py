@@ -30,7 +30,7 @@ from evohashes import HASHES, HASH0
 from evornt    import RNT
 from evoprimes import get_next_higher_prime
 from evoutils  import print_stacktrace
-from evoprngs  import PRNGs, MersenneTwister, VaxC, LongPeriod5, \
+from evoprngs  import PRNGs, KnuthMMIX, KnuthNewLib, LongPeriod5, \
                       LongPeriod256, CMWC4096, LFSR, LCG, byte_rate
 
 #SINGLE_PROGRAM_FROM_HERE
@@ -104,7 +104,7 @@ class CRYPTO :
 
         self.crypto_functions = [ LcgCrypto, HashCrypto ]
         # twister fails in crypto, haven't debugged that yet.
-#        self.crypto_functions = [ LcgCrypto, TwisterCrypto, HashCrypto ]
+#        self.crypto_functions = [ LcgCrypto, HashCrypto ]
         self.next_crypto_index = 0
 
         # instantiate a random number table
@@ -112,7 +112,7 @@ class CRYPTO :
         # because it is passed everywhere, I am using it to pass the
         # paranoia_level and sysem type
         self.the_rnt           = RNT( 4096, paranoia_level, system_type,
-                                        passphrase )
+                                      passphrase )
 
         self.entropy           = self.the_rnt.password_hash
         self.the_rnt.paranoia_level = paranoia_level
@@ -132,6 +132,9 @@ class CRYPTO :
                              self.integer_width, self.vector_size )
 
 
+# I will replace all of these specialized crypto functions with a single
+# function that uses a random set of PRNGs. Took a while to understand
+# that.
 
 class LcgCrypto() :
     """
@@ -197,8 +200,8 @@ class LcgCrypto() :
         # small enough it doesn't mis-order the numbers, large enough
         # it won't be close to the calculated value
         fold_width = int( prng_bit_width *.6 )
-        folded_hash_of_passphrase = self.the_fold.fold_it( hash_of_passphrase,
-                                                     fold_width )
+        folded_hash_of_passphrase = \
+            self.the_fold.fold_it( hash_of_passphrase, fold_width )
             
         # multipliers and additive constants :
         # need 2 series of primes a good distance apart, say the low
@@ -265,10 +268,10 @@ class LcgCrypto() :
                 # bit is selected by the last prng in the vector
                 selected_bit_index = \
                             self.prng_vector[ self.n_prngs - 1 ].next(
-                            bit_width, 1 ) &  bit_selection_mask 
+                                bit_width, 1 ) &  bit_selection_mask 
     
-                lcg_value = self.prng_vector[ self.next_prng ].next(
-                                                                bit_width, 1 )
+                lcg_value = \
+                    self.prng_vector[ self.next_prng ].next( bit_width, 1 )
                 self.next_prng += 1
                 self.next_prng %= ( self.n_prngs - 1 )
     
@@ -305,21 +308,21 @@ class LcgCrypto() :
         Plain text can be a short string or a file read.  Those are
         ascii and [], there may be other special cases for later.
         """
-        assert type( plain_text ) == type( 'a' ) or \
-               type( plain_text ) == type( [] )
+        assert isinstance( plain_text, type( 'a' ) ) or \
+               isinstance( plain_text, type( [] ) )
         
         cipher_text = ''
-        if type( plain_text ) == type( 'a' ) :
+        if isinstance( plain_text, type( 'a' ) ) :
             for plain_byte in plain_text :
                 rand_byte = self.next( 8, steps )
 #                print( "encode rand_byte = ", hex( rand_byte ) )
                 cipher_text += chr( rand_byte ^ ord( plain_byte ) )
 #                cipher_text += chr( ( rand_byte ^ ord( plain_byte ) )
 #                & 0xFF )
-        elif type( plain_text ) == type( [] ) :
+        elif isinstance( plain_text, type( [] ) ) :
             for plain_line in plain_text :
                 for plain_byte in plain_line :
-                    assert type( plain_byte ) == type( 'a' )
+                    assert isinstance( plain_byte, type( 'a' ) )
                     cipher_text += chr( ( ord( self.next( 8, steps ) ) ^ \
                                           ord( plain_byte ) ) & 0xFF )
 
@@ -331,81 +334,21 @@ class LcgCrypto() :
         """
 
         plain_text = ''
-        if type( cipher_text ) == type( 'a' ) :
+        if isinstance( cipher_text, type( 'a' ) ) :
             for ciph_byte in cipher_text :
                 rand_byte = self.next( 8, steps )
 #                print( "decode rand_byte = ", hex( rand_byte ) )
 
                 plain_text += chr( rand_byte ^ ord( ciph_byte ) )
 
-        if type( plain_text ) == type( [] ) :
+        if isinstance( plain_text, type( [] ) ) :
             for ciph_line in cipher_text :
                 for ciph_byte in ciph_line :
-                    assert type( ciph_byte ) == type( 'a' )
+                    assert isinstance( ciph_byte,  type( 'a' ) )
                     plain_text += chr( ( ord( self.next( 8, steps ) ) ^ \
                                          ord( ciph_byte ) ) & 0xFF )
         
         return plain_text
-
-
-class TwisterCrypto( LcgCrypto ) :
-    """
-    Uses a set of Mersenne Twisters to produce a crypto-quality
-    pseudo-random number.
-
-    Algorithm is to use N twisterss, one for each bit of the output byte,
-    with a Nth LCG selecting the particular bit from the 8.
-
-    This represents N * 128 * size bits of state that an adversary must
-    determine in order to know the next byte of pseudo-random number.
-
-    The larger risk is that the initial state can be found by guessing
-    the seed, so each of the N the twisters are initialized with different
-    hashes of the seed.
-    """
-
-    def __init__( self, the_rnt, n_prngs, integer_width, prng_depth ) :
-        """
-        initializes N LCGs 
-        """
-        # prng_depth has no meaning for this PRNG
-        self.prng_vector        = []
-        self.total_cycles       = 0
-        self.the_rnt            = the_rnt
-        self.n_prngs            = n_prngs
-        self.integer_width      = integer_width
-        self.prng_depth         = prng_depth
-
-        self.bit_selection_mask = integer_width - 1 # must be a power of 2
-
-        self.the_fold            = FoldInteger( )
-
-        hashes = HASHES( the_rnt, self.integer_width, self.prng_depth )
-        hash_function = hashes.next()
-
-        self.next_prng          = the_rnt.password_hash % prng_depth
-
-
-        # self, seed, int_width, 
-        #
-        # int_width is bits in the intgers.
-        #
-        # bigger risk is guessint the seed, so initialize with a
-        # different hash for each across the N subsidiary PRNGs
-        for i in range( self.n_prngs ) :
-            self.prng_vector.append( MersenneTwister( the_rnt, integer_width ) )
-
-        for i in range( self.n_prngs ) :  
-            self.prng_vector[ i ].next( 8, 5 ) #should be dependent on the pw
-
-#        self.dump_state()
-
-    def dump_state( self ) :
-        """
-        Dump the vectors.
-        """
-        for i in range( self.n_prngs ) :  
-            print( "i = ", i, "prng = ", self.prng_vector[ i ] )
 
 
 class HashCrypto( LcgCrypto ) :
@@ -450,7 +393,7 @@ class HashCrypto( LcgCrypto ) :
         # update the single integer_vector with every algorithm
         for i in range( len( self.hash_function_vector ) ) :
             self.hash_function_vector[ i ].update(
-                                                the_rnt.password_hash * i + i )
+                the_rnt.password_hash * i + i )
                                        
         # initial steps should be dependent on the password
         this_value = self.next( 64, 40 )
@@ -508,7 +451,7 @@ class PrngsCrypto( LcgCrypto ) :
     pass
 
 
-def generate_random_table( the_rnt, N ) :
+def generate_random_table( the_rnt, N, bitwidth ) :
     # generate N bytes of random data in 64-bit hexadecimal words
     # I used this to generate the first-generation evocrypt.py'
     # 4K_Constant bytes.
@@ -521,7 +464,7 @@ def generate_random_table( the_rnt, N ) :
     for this_prng in range( int( N / ( 8 * 4 ) ) ) :
         the_line = ''
         for line_count in range( 4 ) :
-            the_value = lcg_crypto.next( 64, 1 )
+            the_value = lcg_crypto.next( bitwidth, 1 )
 
             the_line += format( the_value,' >#18X' ) + ','
 
@@ -583,7 +526,12 @@ if __name__ == "__main__" :
         if o in ( "--password") or o in ( "-p" ) :
             PASSWORD = a
 
-#    THE_RNT = RNT( 4096, 1, 'desktop', 'passXE5013C13DACA28A3DADCF4F92F4FE920' )
+    # need a random factor to prevent repeating pseudo-random sequences
+    random.seed()
+
+    PASSPHRASE = 'this is a seed' + hex( random.getrandbits( 128 ) )
+
+    THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
 
     if 'generate_random_table' in TEST_LIST :
         print( generate_random_table( THE_RNT.password_hash, 4096, 64 ) )
@@ -603,11 +551,6 @@ if __name__ == "__main__" :
         # need a random factor to prevent repeating pseudo-random sequences
         random.seed()
 
-        PASSPHRASE = 'passXE5013DACA28A3DCF4F92F4FE920' + \
-                        hex( random.getrandbits( 128 ) )
-
-        THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
-
         THE_PRNG = LcgCrypto( THE_RNT, 19, 128, 32 ) 
 
         while True :
@@ -624,76 +567,9 @@ if __name__ == "__main__" :
         BIN_VECTOR = array( 'L' )
         BIN_VECTOR.append( 0 )
 
-        # need a random factor to prevent repeating pseudo-random sequences
-        random.seed()
-
-        PASSPHRASE = 'this is a seed' + hex( random.getrandbits( 128 ) )
-
         THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
 
         THE_PRNG = LcgCrypto( THE_RNT, 9, 128, 31 )
-
-        print( 'twister crypto byte rate = ',
-                byte_rate( THE_PRNG, 64, 1024*1024 ) )
-
-    if 'mersenne_twister' in TEST_LIST :
-        # 5.86e+05 rands / second Passes dieharder
-        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-                         
-        THE_RNT = RNT( 4096, 1, 'desktop', 'passXE5013C13DACA28A3DADCF9FFE920' )
-
-        # need a random factor to prevent repeating pseudo-random sequences
-        random.seed()
-
-        THE_PRNG = MersenneTwister( random.getrandbits( 128 ), THE_RNT, 64 )
-
-        while True :
-            THE_RANDOM_NUMBER = THE_PRNG.next( 64, 1 )
-            BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER 
-            BIN_VECTOR.tofile( FP )
-#            print( hex( THE_RANDOM_NUMBER ) )
-
-    if 'twister_crypto' in TEST_LIST :
-        #   2.72e+03 rands / second
-        # Passes birthdays
-        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating pseudo-random sequences
-        random.seed()
-
-        # password hash is the entropy for initialing the hash
-        THE_RNT.password_hash = random.getrandbits( 128 )
-
-#    def __init__( self, the_rnt, n_prngs, integer_width, prng_depth ) :
-        THE_PRNG = TwisterCrypto( THE_RNT, 9, 128, 31 )
-
-        while True :
-            THE_RANDOM_NUMBER = THE_PRNG.next( 64, 1 )
-
-            BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
-            BIN_VECTOR.tofile( FP )
-#            print( hex( THE_RANDOM_NUMBER )
-
-    if 'twister_crypto_rate' in TEST_LIST :
-        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating pseudo-random sequences
-        random.seed()
-
-        PASSPHRASE = 'this is a seed' + hex( random.getrandbits( 128 ) )
-
-        THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
-
-        THE_PRNG = TwisterCrypto( THE_RNT, 9, 128, 31 )
 
         print( 'twister crypto byte rate = ',
                 byte_rate( THE_PRNG, 64, 1024*1024 ) )
