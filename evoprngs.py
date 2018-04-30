@@ -88,7 +88,6 @@ class PRNGs() :
 
         return  this_prng( self.the_rnt, self.width_in_bits, self.prng_depth )
 
-
 class KnuthMMIX() :
     """
     Linear congruential specified by Knuth in his MMIX.
@@ -217,9 +216,10 @@ class LongPeriod5() :
                 self.v  = ( self.v ^ ( self.v << 6 ) ) ^ ( t ^ ( t << 13 ) )
                 self.v &= self.integer_mask
 
-        return_value ^= ( self.y + self.y + 1 ) * \
-            self.v & ( ( 1 << bit_width ) - 1 )
-        return self.the_fold.fold_it( self.seed0 ^ return_value, bit_width )
+            return_value ^= ( self.y + self.y + 1 ) * \
+                            self.v & ( ( 1 << bit_width ) - 1 )
+
+        return self.the_fold.fold_it( return_value, bit_width )
 
 class LongPeriod256() :
     """
@@ -268,17 +268,23 @@ class LongPeriod256() :
         returns a bit_width integer
         """
         a_constant = 809430660
-        for _ in range( cycles * self.paranoia_level ) :
-            # point to the next element of the vector
-            self.next_index = ( self.next_index + 1 ) % 256
 
-            t  = a_constant * self.Q[ self.next_index ] + self.c
-            self.c = ( t >> 32 )
+        return_value = 0
+        while return_value < ( 1 << bit_width * 2 ) :
+            return_value <<= 32
+            for _ in range( cycles * self.paranoia_level ) :
+                # point to the next element of the vector
+                self.next_index = ( self.next_index + 1 ) % 256
 
-            t &= self.integer_mask
-            self.Q[ self.next_index ] = t 
+                t  = a_constant * self.Q[ self.next_index ] + self.c
+                self.c = ( t >> 32 )
 
-        return t
+                t &= self.integer_mask
+                self.Q[ self.next_index ] = t 
+
+                return_value += t
+
+        return self.the_fold.fold_it( return_value, bit_width )
 
 class CMWC4096() :
     """
@@ -297,8 +303,9 @@ class CMWC4096() :
         self.integer_width  = integer_width
         self.integer_mask   = ( 1 << integer_width ) - 1
         self.paranoia_level = paranoia_level
-        self.next_index = 4095
+        self.next_index     = 4095
         self.integer_array  = []
+        self.the_fold       = FoldInteger( )
         self.c = get_next_higher_prime( self.the_rnt.password_hash % 809430000 )
 
         entropy = self.the_rnt.password_hash
@@ -316,22 +323,27 @@ class CMWC4096() :
         a_constant = 18782
         r_constant = 0xfffffffe
 
-        for _ in range( cycles * self.paranoia_level ) :
-            self.next_index = ( self.next_index + 1 ) & 4095
-            t = a_constant * self.integer_array[ self.next_index ] + self.c
-            self.c = ( t >> 32 )
-            x = t + self.c
-            if x < self.c :
-                x += 1
-                self.c += 1
-            self.integer_array[ self.next_index ] = r_constant - x
-            self.integer_array[ self.next_index ] &= self.integer_mask
+        return_value = 0
+        while return_value < ( 1 << bit_width * 2 ) :
+            return_value <<= 32
+            for _ in range( cycles * self.paranoia_level ) :
+                self.next_index = ( self.next_index + 1 ) & 4095
+                t = a_constant * self.integer_array[ self.next_index ] + self.c
+                self.c = ( t >> 32 )
+                x = t + self.c
+                if x < self.c :
+                    x += 1
+                    self.c += 1
+                self.integer_array[ self.next_index ] = r_constant - x
+                self.integer_array[ self.next_index ] &= self.integer_mask
 
-        return self.integer_array[ self.next_index ]
+                return_value += self.integer_array[ self.next_index ]
+
+        return self.the_fold.fold_it( return_value, bit_width )
 
 # http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.43.3639&rep=rep1&type=pdf
 
-lfsr_taps_32  = [
+LFSR_TAPS_32  = [
  ( 18,  2,  7, 13 ), ( 13,  3,  4,  9 ), ( 24,  3, 11, 12 ), ( 10,  4,  2,  6 ),
  ( 16,  4,  2, 12 ), ( 11,  5,  4,  3 ), ( 17,  5,  4,  6 ), ( 12,  5, 11,  9 ),
  ( 23,  5, 11, 12 ), ( 23,  6,  7,  8 ), ( 14,  8,  2,  9 ), ( 22,  8,  7,  4 ),
@@ -350,7 +362,7 @@ lfsr_taps_32  = [
  ( 14, 24,  8, 10 ), ( 16, 24, 11, 12 )
  ]
 
-lfsr_taps_64 = [ ( 18, 28,  7,  8 ), ( 26, 20, 11,  7 ), ( 19, 25, 12,  9 ),
+LFSR_TAPS_64 = [ ( 18, 28,  7,  8 ), ( 26, 20, 11,  7 ), ( 19, 25, 12,  9 ),
                  ( 18, 22, 16,  6 ), ( 18, 22, 16,  6 ), ( 30, 28, 17,  9 ),
                  ( 17, 28, 18,  6 ), ( 12,  8, 22,  9 ) ]
 
@@ -410,20 +422,21 @@ class LFSR() :
         self.integer_width  = integer_width
         self.integer_mask   = ( 1 << integer_width ) - 1
         self.paranoia_level = paranoia_level
-        self.this_tap = 0
+        self.this_tap       = 0
+        self.the_fold       = FoldInteger( )
         if   integer_width == 32 :
             if a_specified_tap :
                 self.taps = a_specified_tap
             else :
-                self.this_tap = the_rnt.password_hash % len( lfsr_taps_32 )
-                self.taps = lfsr_taps_32[ self.this_tap ]
+                self.this_tap = the_rnt.password_hash % len( LFSR_TAPS_32 )
+                self.taps = LFSR_TAPS_32[ self.this_tap ]
 
         elif integer_width == 64 :
             if a_specified_tap :
                 self.taps = a_specified_tap
             else :
-                self.this_tap = the_rnt.password_hash % len( lfsr_taps_64 )
-                self.taps     = lfsr_taps_64[ self.this_tap ]
+                self.this_tap = the_rnt.password_hash % len( LFSR_TAPS_64 )
+                self.taps     = LFSR_TAPS_64[ self.this_tap ]
 
         else :
             sys.stderr.write(
@@ -448,8 +461,8 @@ class LFSR() :
         Returns an integer mask for use in next_bit.
         """
         tap_mask = 0
-        for this_tap in the_taps :
-            tap_mask |= 1 << ( this_tap - 1 )
+        for one_tap in the_taps :
+            tap_mask |= 1 << ( one_tap - 1 )
         # include the top bit
         tap_mask |= 1 << ( self.integer_width - 1 )
 
@@ -478,11 +491,11 @@ class LFSR() :
                 self.seed_count += 1 # need to modify the seed if it cycles
 
                 if self.integer_width == 32 :
-                    self.this_tap = ( self.this_tap + 1 ) % len( lfsr_taps_32 )
-                    self.taps = lfsr_taps_32[ self.this_tap ]
+                    self.this_tap = ( self.this_tap + 1 ) % len( LFSR_TAPS_32 )
+                    self.taps = LFSR_TAPS_32[ self.this_tap ]
                 else :
-                    self.this_tap = ( self.this_tap + 1 ) % len( lfsr_taps_64 )
-                    self.taps = lfsr_taps_64[ self.this_tap ]
+                    self.this_tap = ( self.this_tap + 1 ) % len( LFSR_TAPS_64 )
+                    self.taps = LFSR_TAPS_64[ self.this_tap ]
 
                 self.tap_mask = self.integer_taps( self.taps )
                 # no need to change the seed?
@@ -503,19 +516,20 @@ class LFSR() :
         Standard next function adapted to this PRNG.
         """
         return_value = 0
-        for _ in range( bit_width ) :
-            return_value <<= 1 
-            return_value  += self.next_bit( cycles )
+        while return_value < ( 1 << bit_width * 2 ) :
+            return_value <<= 32
+            for _ in range( bit_width ) :
+                return_value <<= 1 
+                return_value  += self.next_bit( cycles )
 
-#        eprint( hex( return_value ) )
-        return return_value
+        return self.the_fold.fold_it( return_value, bit_width )
             
-
 
 class LCG():
     """
     Class for a Linear Congruential Generator with parameters
     controlling space/time of running.
+
     """
 
     def __init__( self, rnt, integer_width, n_integers,
@@ -615,22 +629,27 @@ class LCG():
         numbers, so we return the middle 64 bits.
         """
 
-        for _ in range( cycles ) :
+        return_value = 0
+        while return_value < ( 1 << bit_width * 2 ) :
+            return_value <<= 32
+            for _ in range( cycles ) :
 
-            lagged_index = ( self.index + self.lag ) % self.integer_vector_size
+                lagged_index = ( self.index + self.lag ) % self.integer_vector_size
 
-            # mask to the max_value to prevent wild growth of the integer
-            vector_value = self.max_integer_mask
-            vector_value &= self.integer_vector[ lagged_index ]
-            vector_value *= self.multiplier
-            vector_value += self.constant
+                # mask to the max_value to prevent wild growth of the integer
+                vector_value = self.max_integer_mask
+                vector_value &= self.integer_vector[ lagged_index ]
+                vector_value *= self.multiplier
+                vector_value += self.constant
 
-            self.integer_vector[ self.index ] = vector_value
+                self.integer_vector[ self.index ] = vector_value
 
-            self.index = ( self.index + 1 ) % self.integer_vector_size
-            self.total_cycles += 1
+                self.index = ( self.index + 1 ) % self.integer_vector_size
+                self.total_cycles += 1
 
-        return self.integer_vector[ self.index ] & ( ( 1 << bit_width ) - 1 )
+            return_value +=  self.integer_vector[ self.index ] & \
+                            ( ( 1 << bit_width ) - 1 )
+        return self.the_fold.fold_it( return_value, bit_width )
 
     def dump_state( self ) :
         """
@@ -638,6 +657,146 @@ class LCG():
         """
         for element in self.integer_vector :
             print( hex( element ) )
+
+class Well512( LCG ) :
+    """
+    from http://www.lomont.org/Math/Papers/2008/Lomont_PRNG_2008.pdf
+
+    This is a variant of LCG below, just a different update mechanism.
+
+    The paper warns, as most of them do, that writing new PRNG functions
+    is difficult. Not in my experience. The technique of using very long
+    integers to generate rnadom values twice as long as desired, then
+    folding results makes for randomness.  At least as judged by
+    dieharder.
+
+    These are far too slow for general use, of course, and are only
+    feasible for use in crypto because processors are now so powerful.
+    def __init__( self, rnt, integer_width, n_integers,
+                        multiplier, constant, lag ) :
+        self.integer_vector       = []
+        self.entropy              = rnt.password_hash
+        self.the_rnt              = rnt
+        self.integer_width        = integer_width
+        self.integer_vector_size  = n_integers
+        self.multiplier           = multiplier
+        self.constant             = constant
+        self.lag                  = lag
+        self.index                = 0
+
+        # width of the integers in the lcg_array
+        self.width_in_bits        = integer_width
+        self.width_in_bytes       = integer_width / 8 
+        self.width_in_hexits      = self.width_in_bytes * 2
+        self.total_cycles         = 0
+        self.max_integer_mask     = ( 1 << integer_width ) - 1
+        self.max_integer          =   1 << integer_width 
+
+        self.integer_vector = [ 0 for _ in range( self.integer_vector_size ) ]
+
+        #
+        # initialize the lcg array beginning with a hash of the seed
+        #
+
+        # Each successive value in the lcg_array is the xor of the hash
+        # of the set of the prior values.
+        # xor to further obfuscate the result by preventing guessing
+        # which hash was used, a fact that could be used to work back
+        # to obtain the password, given the code.
+        # The fold operation does this, but not reliably because all
+        # hashes are not longer than 64 bits
+
+        # Perilously close to security by obscurity, but I think solid
+        # math.  If the hash input changing in a single bit, on average
+        # changes 50% of the bits in the hash, changing more bits via
+        # xor can't hurt unless the number of bits changed in the input
+        # predicts some statistic about the relationship of cyphertext to
+        # plaintext.  Statistically, it can't happen.
+
+        hashes = HASHES( rnt, self.integer_width, self.integer_vector_size )
+        the_hash = hashes.next()
+
+
+        # each LCD will be unique in these, so uniquely initialized
+        the_hash.update( self.entropy )
+        the_hash.update( str( self.multiplier ) + str( self.constant ) + \
+                         str( self.lag ) )
+
+        self.the_fold  = FoldInteger( )
+        xor_result = \
+                  self.the_fold.fold_it( the_hash.intdigest(),
+                                     self.width_in_bits )
+
+        the_hash.update( xor_result )
+
+        for vector_index in range( self.integer_vector_size ) :
+
+            # the hash of the previous part of the array
+            for int_index in range( vector_index ) :
+                the_hash.update( str( self.integer_vector[ int_index ] ) )
+
+            integer_hash = the_hash.intdigest()
+            integer_hash = self.the_fold.fold_it( integer_hash,
+                                                  self.width_in_bits )
+
+            xor_result ^= integer_hash
+            self.integer_vector[ vector_index ] = xor_result
+
+
+        # Cycle it a random number of times
+        cycles = ( xor_result & 
+                   self.the_rnt.randint( self.width_in_bits ) ) % 1024
+        self.next( 1, cycles )
+
+    """
+
+    def next( self, bit_width, cycles ) :
+        """
+        I translated-generalized the code, don't get the mod 15, etc. So many
+        unexplained constants, and very specific to 16 integers in the
+        state and 32-bit values.
+        
+        This version passes dieharder, however.
+        """
+        return_value = 0
+        while return_value < ( 1 << bit_width * 2 ) :
+            return_value <<= 32
+            for _ in range( cycles ) :
+
+                lagged_index = ( self.index + self.lag ) \
+                                % self.integer_vector_size
+
+                # mask to the max_value to prevent wild growth of the integer
+                vector_value = self.integer_vector[ lagged_index ]
+                lagged_value = self.integer_vector[ (self.index + self.lag ) \
+                                % self.integer_vector_size ]
+
+                b = vector_value ^ lagged_value ^ ( vector_value << 16 ) ^ \
+                    ( lagged_value << 15 )
+
+                lagged_value ^= ( lagged_value >> 11 )
+
+                # this is an update with a new value
+                vector_value = self.integer_vector[ self.index ] 
+                self.integer_vector[ self.index ] = b ^ lagged_value
+
+                d = vector_value ^ (( vector_value << 5 ) % self.multiplier )
+
+                # A second update of the state vector
+                self.index = ( self.index + self.lag + 2 ) % \
+                             self.integer_vector_size
+                vector_value = self.integer_vector[ self.index ]
+
+                self.integer_vector[ self.index] = vector_value ^ b ^ d ^ \
+                    ( vector_value << 2 ) ^ ( b << 18 ) ^ ( lagged_value << 28 )
+
+#               self.integer_vector[ self.index ] %= self.max_integer_mask
+                self.total_cycles += 1
+
+            return_value += self.integer_vector[ self.index ] 
+
+        return self.the_fold.fold_it( return_value, bit_width )
+
 
 
 
@@ -649,7 +808,7 @@ def byte_rate( the_function, result_width, n_values ) :
     """
     beginning_time = int( time.time() )
     for _ in range( n_values ) :
-        this_result = the_function.next( result_width , 1 )
+        _ = the_function.next( result_width , 1 )
     ending_time = int( time.time() )
 
     return ( n_values * ( result_width / 8 ) ) / ( ending_time - beginning_time)
@@ -715,14 +874,13 @@ if __name__ == "__main__" :
     THE_RNT = RNT( 4096, 1, 'desktop', PASSWORD )
     BIN_VECTOR = array( 'L' )
     BIN_VECTOR.append( 0 )
+    FP = os.fdopen( sys.stdout.fileno(), 'wb' )
 
     if 'lcg' in TEST_LIST :
         #  7.97e+05 rands/second Passes dieharder
         # passes birthdays, operm5, rank 32x32, weak or fails rank
         # 6x8 weak nd beyond
         # this was not improved by the twister-produced rng.
-
-        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
 
         INTEGER_WIDTH = 128
         LCG_DEPTH     = 32
@@ -745,8 +903,6 @@ if __name__ == "__main__" :
 
     if 'newlib' in TEST_LIST :
         # 8.17e+05 rands / second, very slow
-        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
-
         INTEGER_WIDTH = 64
         LCG_DEPTH     = 32
         DIEHARDER_MAX_INTEGER   = ( 1 << 64 ) - 1
@@ -763,8 +919,6 @@ if __name__ == "__main__" :
 
     if 'knuth' in TEST_LIST :
         # 8.17e+05 rands / second, very slow
-        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
-
         INTEGER_WIDTH = 64
         LCG_DEPTH     = 32
         DIEHARDER_MAX_INTEGER   = ( 1 << 64 ) - 1
@@ -781,8 +935,6 @@ if __name__ == "__main__" :
 
     if 'lp5' in TEST_LIST :
         # 8.17e+05 rands / second, very slow
-        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
-
         INTEGER_WIDTH = 64
         LCG_DEPTH     = 32
         DIEHARDER_MAX_INTEGER   = ( 1 << 64 ) - 1
@@ -802,8 +954,6 @@ if __name__ == "__main__" :
 
     if 'lp256' in TEST_LIST :
         # 8.17e+05 rands / second, very slow
-        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
-
         INTEGER_WIDTH = 32
         LCG_DEPTH     = 32
         DIEHARDER_MAX_INTEGER   = ( 1 << 64 ) - 1
@@ -824,7 +974,25 @@ if __name__ == "__main__" :
 
     if 'cmwc4096' in TEST_LIST :
         # 8.17e+05 rands / second, very slow
-        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
+        INTEGER_WIDTH = 32
+        LCG_DEPTH     = 32
+        DIEHARDER_MAX_INTEGER   = ( 1 << 64 ) - 1
+
+        # ( self, the_rnt, integer_width, prng_depth, paranoia_level )
+        THE_PRNG = CMWC4096( THE_RNT, 32, 32, 2 ) 
+
+        while True :
+            RN0 = THE_PRNG.next( 32, 1 )
+            RN1 = THE_PRNG.next( 32, 1 )
+            THE_RANDOM_NUMBER  = RN0 << 32
+            THE_RANDOM_NUMBER += RN1
+            THE_RANDOM_NUMBER &= ( 1 << 64 ) - 1
+
+            BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
+            BIN_VECTOR.tofile( FP )
+#            print( hex( THE_RANDOM_NUMBER ) )
+
+    if 'well512' in TEST_LIST :
 
         INTEGER_WIDTH = 32
         LCG_DEPTH     = 32
@@ -843,6 +1011,7 @@ if __name__ == "__main__" :
             BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
             BIN_VECTOR.tofile( FP )
 #            print( hex( THE_RANDOM_NUMBER ) )
+
 
     if 'lfsr_periods' in TEST_LIST :
         # tests 20 samples to see if they have a period less than 64B
@@ -877,7 +1046,7 @@ if __name__ == "__main__" :
         # to see if they have a period less than 1M. Another check on
         # the implementation.
 
-        for this_tap in lfsr_taps_32 : # don't screw up 32/64 and int_width
+        for this_tap in LFSR_TAPS_32 : # don't screw up 32/64 and int_width
             INT_WIDTH = 32
             print( this_tap )
             for j in range( 20 ) :

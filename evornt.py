@@ -1066,19 +1066,20 @@ if __name__ == "__main__" :
 
 #    print( "Test list = ", TEST_LIST )
 
+    SO = os.fdopen( sys.stdout.fileno(), 'wb' )
+#   SE = os.fdopen( sys.stderr.fileno(), 'wb' )
+
+    BIN_VECTOR = array( 'L' )
+    BIN_VECTOR.append( 0 )
+
+    # need a random factor to prevent repeating random sequences
+    random.seed()
+
+    PASSPHRASE = 'this is a seed' + hex( random.getrandbits( 128 ) )
+
+    THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
+
     if 'randint' in TEST_LIST :
-        SO = os.fdopen( sys.stdout.fileno(), 'wb' )
-#        SE = os.fdopen( sys.stderr.fileno(), 'wb' )
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating random sequences
-        random.seed()
-
-        PASSPHRASE = 'this is a seed' + hex( random.getrandbits( 128 ) )
-
-        THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
 
         while True :
             BIN_VECTOR[ 0 ] = THE_RNT.randint( 64 )
@@ -1087,18 +1088,6 @@ if __name__ == "__main__" :
 
 
     if 'randint1' in TEST_LIST :
-        SO = os.fdopen( sys.stdout.fileno(), 'wb' )
-#        SE = os.fdopen( sys.stderr.fileno(), 'wb' )
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating random sequences
-        random.seed()
-
-        PASSPHRASE = 'this is a seed' + hex( random.getrandbits( 128 ) )
-
-        THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
 
         while True :
             BIN_VECTOR[ 0 ] = THE_RNT.randint1( 64 )
@@ -1106,18 +1095,6 @@ if __name__ == "__main__" :
 #            BIN_VECTOR.tofile( SE )
 
     if 'randint2' in TEST_LIST :
-        SO = os.fdopen( sys.stdout.fileno(), 'wb' )
-#        SE = os.fdopen( sys.stderr.fileno(), 'wb' )
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating random sequences
-        random.seed()
-
-        PASSPHRASE = 'this is a seed' + hex( random.getrandbits( 128 ) )
-
-        THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
 
         while True :
             BIN_VECTOR[ 0 ] = THE_RNT.randint2( 64 )
@@ -1126,34 +1103,11 @@ if __name__ == "__main__" :
 
 
     if 'randint_rate' in TEST_LIST :
-        SO = os.fdopen( sys.stdout.fileno(), 'wb' )
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating random sequences
-        random.seed()
-
-        PASSPHRASO = 'this is a seed' + hex( random.getrandbits( 128 ) )
-
-        THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASO )
         print( 'twister crypto byte rate = ',
                rnt_rate( THE_RNT.randint, 64, 1024*1024 ) )
 
 
     if 'next_random_value' in TEST_LIST :
-        SO = os.fdopen( sys.stdout.fileno(), 'wb' )
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
-        # need a random factor to prevent repeating random sequences
-        random.seed()
-
-        PASSPHRASE = 'this is a passphrase' + hex( random.getrandbits( 128 ) )
-
-        THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
-
         ENTROPY_BITS = 0XF3AF33210ED7FCA6F64C4C72488AC5DF
         while 1 :
             THE_RANDOM_NUMBER = THE_RNT.next_random_value( ENTROPY_BITS, 64 )
@@ -1163,13 +1117,6 @@ if __name__ == "__main__" :
 
         
     if 'wichmann' in TEST_LIST :
-        SO = os.fdopen( sys.stdout.fileno(), 'wb' )
-
-        random.seed()
-
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-
         WICHMANN = WichmannHill( [ random.getrandbits( 16 ),
                                    random.getrandbits( 16 ) , 0xfef ], 2 )
 

@@ -460,9 +460,11 @@ class PrngsCrypto( LcgCrypto ) :
 
 
 def generate_random_table( the_rnt, n_bytes, bitwidth ) :
-    # generate N bytes of random data in 64-bit hexadecimal words
-    # I used this to generate the first-generation evocrypt.py'
-    # 4K_Constant bytes.
+    """
+    generate N bytes of random data in 64-bit hexadecimal words
+    I used this to generate the first-generation evocrypt.py'
+    4K_Constant bytes.
+    """
 
     random_table = ''
     lcg_crypto = LcgCrypto( the_rnt, 23, 256, 31 )
@@ -540,6 +542,8 @@ if __name__ == "__main__" :
     BIN_VECTOR = array( 'L' )
     BIN_VECTOR.append( 0 )
 
+    FP = os.fdopen( sys.stdout.fileno(), 'wb' )
+
     if 'generate_random_table' in TEST_LIST :
         print( generate_random_table( THE_RNT.password_hash, 4096, 64 ) )
 
@@ -566,16 +570,12 @@ if __name__ == "__main__" :
 #            print( hex( THE_RANDOM_NUMBER )
 
     if 'lcg_crypto_rate' in TEST_LIST :
-        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
-
         THE_PRNG = LcgCrypto( THE_RNT, 9, 128, 31 )
 
         print( 'twister crypto byte rate = ',
                 byte_rate( THE_PRNG, 64, 1024*1024 ) )
 
     if 'hash_crypto' in TEST_LIST :
-        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
-
         THE_PRNG = HashCrypto( THE_RNT, 19, 64, 11 )
 
         while True :
@@ -586,8 +586,6 @@ if __name__ == "__main__" :
 
 
     if 'hash_crypto_rate' in TEST_LIST :
-        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
-
         THE_PRNG = HashCrypto( THE_RNT, 19, 64, 11 )
 
         print( "hash crypto byte rate = ",
@@ -602,23 +600,6 @@ if __name__ == "__main__" :
         # file repeatedly encrypted is a more stringent test than this,
         # as binary files have more values possible per byte, and that
         # would help to cover a weak pseudo-random NG.
-#=============================================================================#
-#            dieharder version 3.31.1 Copyright 2003 Robert G. Brown
-#=============================================================================#
-#   rng_name    |rands/second|   Seed   |
-#stdin_input_raw|  5.80e+03  |2731372621|
-#=============================================================================#
-#       test_name   |ntup| tsamples |psamples|  p-value |Assessment
-#=============================================================================#
-#  diehard_birthdays|   0|       100| 100|0.23131660|  PASSED
-# then it stopped, apparently because I didn't have enough large files.
-
-
-        N = 1024*1024*1024*1024
-#        N = 8*1024*1024
-        N_COUNT = 0
-
-        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
 
         THIS_CRYPTO = CRYPTO( 'this is a phrase', 'desktop', 1 )
         ENCODE = THIS_CRYPTO.next()
@@ -637,46 +618,43 @@ if __name__ == "__main__" :
         '/home/lew/Desktop/Downloads*.sh'
         '/home/lew/Desktop/Downloads*.txt'
         ] 
-        for THIS_DIR in DIR_LIST :
-            FILE_LIST = glob.glob( THIS_DIR )
-            for THIS_FILE in FILE_LIST :
+        while True :
+            for THIS_DIR in DIR_LIST :
+               FILE_LIST = glob.glob( THIS_DIR )
+               for THIS_FILE in FILE_LIST :
 
-                THIS_FILE_DATA = open( THIS_FILE, 'rb').read()
-                print( THIS_FILE, len( THIS_FILE_DATA ) , len(
-                THIS_FILE_DATA ) % 8 )
+                   THIS_FILE_DATA = open( THIS_FILE, 'rb').read()
+                   print( THIS_FILE, len( THIS_FILE_DATA ) , len(
+                   THIS_FILE_DATA ) % 8 )
 
-                #Make the file length an exact multiple of 8
-                # this saves problems below, speeds this up
-                # genuine encryption would be byte-by-byte.
-                # this ignores an odd # of bytes at the end of the file
-                MAX_BYTE_COUNT = len( THIS_FILE_DATA ) - \
-                                 len( THIS_FILE_DATA ) % 8
+                   #Make the file length an exact multiple of 8
+                   # this saves problems below, speeds this up
+                   # genuine encryption would be byte-by-byte.
+                   # this ignores an odd # of bytes at the end of the file
+                   MAX_BYTE_COUNT = len( THIS_FILE_DATA ) - \
+                                    len( THIS_FILE_DATA ) % 8
 
-                print( "max = ", MAX_BYTE_COUNT )
-                THIS_FILE_BYTE_COUNT = 0
-                CIPH_WORD = 0
-                while THIS_FILE_BYTE_COUNT < MAX_BYTE_COUNT :
+                   THIS_FILE_BYTE_COUNT = 0
+                   CIPH_WORD = 0
+                   while THIS_FILE_BYTE_COUNT < MAX_BYTE_COUNT :
 
-                    PLAIN_BYTES = THIS_FILE_DATA[ THIS_FILE_BYTE_COUNT : 
+                       PLAIN_BYTES = THIS_FILE_DATA[ THIS_FILE_BYTE_COUNT : 
                                                   THIS_FILE_BYTE_COUNT + 8 ]
-                    THIS_FILE_BYTE_COUNT += 8
+                       THIS_FILE_BYTE_COUNT += 8
 
-                    if len( PLAIN_BYTES) == 0 :
-                        break
+                       if len( PLAIN_BYTES) == 0 :
+                           break
 
-                    RAND_INT = ENCODE.next( 64, 1 )
-                    PLAIN_INT = struct.unpack( "@Q", PLAIN_BYTES )[ 0 ]
+                       RAND_INT = ENCODE.next( 64, 1 )
+                       PLAIN_INT = struct.unpack( "@Q", PLAIN_BYTES )[ 0 ]
 
-                    CIPH_WORD = PLAIN_INT ^ RAND_INT
+                       CIPH_WORD = PLAIN_INT ^ RAND_INT
 
 #                    print( "ciph_word = ", hex( CIPH_WORD ) )
-                    BIN_VECTOR[ 0 ] = CIPH_WORD
-                    BIN_VECTOR.tofile( FP )
-                    CIPH_WORD = 0
-                    N_COUNT += 1
+                       BIN_VECTOR[ 0 ] = CIPH_WORD
+                       BIN_VECTOR.tofile( FP )
+                       CIPH_WORD = 0
  
-                    if N_COUNT > N :
-                        sys.exit( 0 )
 
     if 'encode1' in TEST_LIST :
         # this repeatedly encodes a single large text file.
@@ -694,79 +672,6 @@ if __name__ == "__main__" :
         # HAve to run that test again, different passphrase.
         # 
         # very slow, 6.23K 64-bit values / second according to dieharder
-        """
-lew@Lew-amd-x6 ~/EvoCrypt $ ./evoprngs.py --test encode1 | dieharder -a -g 200
-#=============================================================================#
-#            dieharder version 3.31.1 Copyright 2003 Robert G. Brown          #
-#=============================================================================#
-   rng_name    |rands/second|   Seed   |
-stdin_input_raw|  6.23e+03  |3017691726|
-#=============================================================================#
-        test_name   |ntup| tsamples |psamples|  p-value |Assessment
-#=============================================================================#
-   diehard_birthdays|   0|       100|     100|0.18537547|  PASSED  
-      diehard_operm5|   0|   1000000|     100|0.64316840|  PASSED  
-  diehard_rank_32x32|   0|     40000|     100|0.07200933|  PASSED  
-    diehard_rank_6x8|   0|    100000|     100|0.00064433|   WEAK   
-   diehard_bitstream|   0|   2097152|     100|0.88380248|  PASSED  
-        diehard_opso|   0|   2097152|     100|0.00017506|   WEAK   
-        diehard_oqso|   0|   2097152|     100|0.01536041|  PASSED  
-         diehard_dna|   0|   2097152|     100|0.15532173|  PASSED  
-diehard_count_1s_str|   0|    256000|     100|0.98957588|  PASSED  
-diehard_count_1s_byt|   0|    256000|     100|0.18894573|  PASSED  
- diehard_parking_lot|   0|     12000|     100|0.35741380|  PASSED  
-    diehard_2dsphere|   2|      8000|     100|0.30090914|  PASSED  
-    diehard_3dsphere|   3|      4000|     100|0.93053164|  PASSED  
-     diehard_squeeze|   0|    100000|     100|0.00000000|  FAILED  
-        diehard_sums|   0|       100|     100|0.05330236|  PASSED  
-        diehard_runs|   0|    100000|     100|0.41932238|  PASSED  
-        diehard_runs|   0|    100000|     100|0.40481210|  PASSED  
-       diehard_craps|   0|    200000|     100|0.00029863|   WEAK   
-       diehard_craps|   0|    200000|     100|0.06962231|  PASSED 
-
-This is the 2nd run. I had the random with local entropy in all of them
-today and later.
-lew@Lew-amd-x6 ~/EvoCrypt $ tail evornt_encode1_20June2017.dieharder
-      rng_name    |rands/second|   Seed   |
-   stdin_input_raw|  5.83e+03  | 711436871|
-#=============================================================================#
-      test_name   |ntup| tsamples |psamples|  p-value |Assessment
-#=============================================================================#
- diehard_birthdays|   0|       100|     100|0.80550140|  PASSED  
-    diehard_operm5|   0|   1000000|     100|0.47661623|  PASSED  
-diehard_rank_32x32|   0|     40000|     100|0.72298278|  PASSED  
-  diehard_rank_6x8|   0|    100000|     100|0.47543395|  PASSED  
- diehard_bitstream|   0|   2097152|     100|0.49024940|  PASSED  
-
-lew@Lew-amd-x6 ~/EvoCrypt $ ./evoprngs.py --test encode1 | dieharder -a
--g 200
-#=============================================================================#
-#            dieharder version 3.31.1 Copyright 2003 Robert G. Brown
-#            #
-#=============================================================================#
-   rng_name    |rands/second|   Seed   |
-stdin_input_raw|  6.35e+03  | 700496571|
-#=============================================================================#
-        test_name   |ntup| tsamples |psamples|  p-value |Assessment
-#=============================================================================#
-   diehard_birthdays|   0|       100|     100|0.84651717|  PASSED  
-      diehard_operm5|   0|   1000000|     100|0.40706187|  PASSED  
-  diehard_rank_32x32|   0|     40000|     100|0.26665833|  PASSED  
-    diehard_rank_6x8|   0|    100000|     100|0.82319031|  PASSED  
-   diehard_bitstream|   0|   2097152|     100|0.94650258|  PASSED  
-        diehard_opso|   0|   2097152|     100|0.00000001|  FAILED  
-        diehard_oqso|   0|   2097152|     100|0.55687162|  PASSED  
-
-Has to be judged to fail.  I assume it is hashcrypto failing?  rand rae
-is 10X for pure hash0 compared to CRYPTO. Need to try Hash1 again, then
-work through CRYPTO code and also make sure HashCrypto works, which it
-does not just now.
-        """
-#        N = 1024*1024*1024*1024
-        N = 8*1024*1024
-        N_COUNT = 0
-
-        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
 
         # Don't need to decode this, just defeat dieharder.
         # Password hash is the entropy for initializing the hash.
@@ -807,7 +712,6 @@ does not just now.
                 BIN_VECTOR[ 0 ] = CIPH_WORD
                 BIN_VECTOR.tofile( FP )
                 CIPH_WORD = 0
-                N_COUNT  += 1
  
 
 

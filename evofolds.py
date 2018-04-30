@@ -26,6 +26,7 @@ TODO :
 import sys
 import traceback
 import getopt
+import random
 
 #SINGLE_PROGRAM_FROM_HERE
 
@@ -235,12 +236,13 @@ if __name__ == "__main__" :
 
     THE_FOLD = FoldInteger( )
 
-    if TEST_LIST :
-        SO = os.fdopen( sys.stdout.fileno(), 'wb' )
-        BIN_VECTOR = array( 'L' )
-        BIN_VECTOR.append( 0 )
-    else :
-        sys.exit( -1 )
+#    if TEST_LIST :
+#        SO = os.fdopen( sys.stdout.fileno(), 'wb' )
+
+#        BIN_VECTOR = array( 'L' )
+#        BIN_VECTOR.append( 0 )
+#    else :
+#        sys.exit( -1 )
 
 
     if 'simple' in TEST_LIST :
@@ -294,15 +296,22 @@ if __name__ == "__main__" :
                 print( 'xad0', hex( THE_FOLD.fold_xor_add0( PATTERN, i ) ))
                 print( 'xad1', hex( THE_FOLD.fold_xor_add1( PATTERN, i ) ))
 
+    # need a random factor to prevent repeating random sequences
+    random.seed()
+
+    PASSPHRASE = 'this is a passphrase' + hex( random.getrandbits( 128 ) )
+
+    THE_RNT = RNT( 4096, 2, 'desktop', PASSPHRASE )
+    # ( password, integer_width, hash_depth )
+    # conservative wrt entropy, only 3x the 64 bits and 11 deep
+    THE_HASH = HASH0( THE_RNT, 192, 11 )
+           
+    BIN_VECTOR = array( 'L' )
+    BIN_VECTOR.append( 0 )
+    SO = os.fdopen( sys.stdout.fileno(), 'wb' )
+
     if 'xor0' in TEST_LIST :
-
-        THE_RNT = RNT( 4096, 2, 'desktop', 'this is a passphrase' )
-
         RANDINT = THE_RNT.randint( 64 )
-
-        # ( password, integer_width, hash_depth )
-        # conservative wrt entropy, only 3x the 64 bits and 11 deep
-        THE_HASH = HASH0( THE_RNT, 192, 11 )
 
         NEW_UPDATE = THE_HASH.intdigest() & 0xFF
 
@@ -319,14 +328,7 @@ if __name__ == "__main__" :
             NEW_UPDATE = THE_RANDOM_NUMBER & 0xFF
 
     if 'xor1' in TEST_LIST :
-
-        THE_RNT = RNT( 4096, 2, 'desktop', 'this is a passphrase' )
-
         RANDINT = THE_RNT.randint( 64 )
-
-        # ( password, integer_width, hash_depth )
-        # conservative wrt entropy, only 3x the 64 bits and 11 deep
-        THE_HASH = HASH0( THE_RNT, 192, 11 )
 
         NEW_UPDATE = THE_HASH.intdigest() & 0xFF
 
@@ -343,19 +345,12 @@ if __name__ == "__main__" :
             NEW_UPDATE = THE_RANDOM_NUMBER & 0xFF
 
     if 'xadd0' in TEST_LIST :
-
-        THE_RNT = RNT( 4096, 2, 'desktop', 'this is a passphrase' )
-
         RANDINT = THE_RNT.randint( 64 )
-
-        # ( password, integer_width, hash_depth )
-        # conservative wrt entropy, only 3x the 64 bits and 11 deep
-        THE_HASH = HASH0( THE_RNT, 192, 11 )
 
         NEW_UPDATE = THE_HASH.intdigest() & 0xFF
 
         while 1 :
-            THE_HASH.update( str( NEW_UPDATE) )
+            THE_HASH.update( str( NEW_UPDATE ) )
             THE_RANDOM_NUMBER = THE_HASH.intdigest()
 
             FOLDED_VALUE = THE_FOLD.fold_xor_add0( THE_RANDOM_NUMBER, 64 ) 
@@ -367,14 +362,7 @@ if __name__ == "__main__" :
             NEW_UPDATE = THE_RANDOM_NUMBER & 0xFF
 
     if 'xadd1' in TEST_LIST :
-
-        THE_RNT = RNT( 4096, 2, 'desktop', 'this is a passphrase' )
-
         RANDINT = THE_RNT.randint( 64 )
-
-        # ( password, integer_width, hash_depth )
-        # conservative wrt entropy, only 3x the 64 bits and 11 deep
-        THE_HASH = HASH0( THE_RNT, 192, 11 )
 
         NEW_UPDATE = THE_HASH.intdigest() & 0xFF
 

@@ -440,6 +440,8 @@ if __name__ == "__main__" :
     BIN_VECTOR = array( 'L' )
     BIN_VECTOR.append( 0 )
 
+    FP = os.fdopen( sys.stdout.fileno(), 'wb' )
+
     if 'all' in TEST_LIST :
 
         for HASH_FUNCTION in HASH_FUNCTIONS :
@@ -453,10 +455,10 @@ if __name__ == "__main__" :
 
     if 'hashes' in TEST_LIST :
 
-        H0 = HASHES( THE_RNT, 128, 19 )
+        THE_HASHES = HASHES( THE_RNT, 128, 19 )
 
         for _ in range( 10 ) :
-            HASH_FUNCTION = H0.next()
+            HASH_FUNCTION = THE_HASHES.next()
             HASH_FUNCTION.update( "fred" )
 
             HASH_VALUE = HASH_FUNCTION.intdigest()
@@ -471,8 +473,6 @@ if __name__ == "__main__" :
     # weak should be 1/100, fail 1/1000.  So this is not a serious prng,
     # in crypto terms.
     if 'new' or 'hash0' in TEST_LIST :
-        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
-
         # ( password, integer_width, hash_depth ) :
         THE_HASH = HASH0( THE_RNT, 64, 31 )
 
@@ -494,8 +494,6 @@ if __name__ == "__main__" :
     # 5.92e+04 rands/second passes most through rgb_bitdist[ 11 ], 3 are
     # weak one 'runs', one 'sts_serial', one rbg_bitdist
     if 'hash1' in TEST_LIST :
-        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
-
         # ( password, integer_width, hash_depth ) :
         THE_HASH = HASH1( THE_RNT, 64, 31 )
 
