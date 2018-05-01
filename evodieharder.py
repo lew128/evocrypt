@@ -26,30 +26,10 @@ import os
 import sys
 import getopt
 import time
-import random 
-import threading
-import io
 import multiprocessing as mp
 import subprocess
 
-
-from array      import array
-
 #
-
-
-def execute_processes( evocommand, diecommand, base_file_name ) :
-    """
-    This begins the processes and threads necessary to execute an
-    evocrypt test and pipe stdout into the dieharder command. The intent
-    is to emulate a command such as :
-
-    ./evofolds.py --password umberalertness --test xadd0 2>
-        evo_folds_xadd0.stderr | dieharder -a -g 200 -p 200 -t 200 >
-        die_folds_xadd0.stdout 2> die_folds_xadd0.stderr
-    """
-    pass
-    
 
 
 def construct_dieharder_command( dtest_list, p_samples, t_samples, the_group,
@@ -60,8 +40,12 @@ def construct_dieharder_command( dtest_list, p_samples, t_samples, the_group,
     <group>_<test>.stdout 2> <group>_<test>.stderr
     """
     the_command = 'dieharder '
-    for the_dtest in dtest_list :
-        the_command += ' -d ' + the_dtest
+    if dtest_list[ 0 ] == 'all' :
+        the_command += '-a -g 200 ' 
+    else :
+        the_command += '-g 200 ' 
+        for the_dtest in dtest_list :
+            the_command += ' -d ' + the_dtest
 
     the_command += ' -p '     + str( p_samples ) + ' -t ' + str( t_samples )
     the_command += ' >> '     + the_group + '_' + the_test + '.stdout'
@@ -77,7 +61,8 @@ def construct_command( the_test ) :
     """
     the_command = ''
     the_group = test_to_group( EVOCRYPT_GROUPS, the_test )
-    the_command += 'date > ' + the_group + '_' + the_test + '.stdout;./' 
+    stdout_file_name = the_group + '_' + the_test + '.stdout'
+    the_command += 'date >> ' + stdout_file_name + ';./' 
     the_command += GROUP_TO_FILE_NAMES[ the_group ] + '.py '
     the_arguments = '--password umberallert --test ' + the_test
 
@@ -85,7 +70,8 @@ def construct_command( the_test ) :
                                         DIEHARDER_PSAMPLES, DIEHARDER_TSAMPLES,
                                         the_group, the_test )
         
-    return the_command + the_arguments
+
+    return the_command + the_arguments, stdout_file_name
 
 def test_to_group( groups, the_test ) :
     """
@@ -93,30 +79,29 @@ def test_to_group( groups, the_test ) :
     Inefficent, but who cares?
     """
 
-    print( "ttg test : '" + the_test + "'" )
     for the_group in groups :
-        print( "ttgroup[ the_test ] = ", groups[ the_group ] )
         if the_test in groups[ the_group ] :
-            print( "ttgroup[ the_test ] = ", the_test )
             return the_group # == the base file name
     return None
 
-def execute_command_in_forked_process( the_command_and_arguments, the_queue ) :
+def execute_command_in_forked_process( the_command_and_arguments, the_queue  ) :
     """
     No comment needed with an excellent name like that!
     """
-    print( "execute_command_in_forked_process : '" + 
-            the_command_and_arguments + "'" )
-
     #    subprocess.run( args, *, stdin=None, input=None, stdout=None,
     #    stderr=None, shell=False, cwd=None, timeout=None, check=False,
     #    encoding=None, errors=None)
 
-    os.system( the_command_and_arguments )
+    try :
+        os.system( the_command_and_arguments )
+
+    except : # catch *all* exceptions
+        the_error = sys.exc_info()[ 0 ]
+        the_queue.put( the_error )
 
     the_queue.put( "DONE : ", the_command_and_arguments )
-    while( True ) :
-        time.sleep( 5 )
+    time.sleep( 5 )
+    sys.exit( 0 )
 
 
 def monitor_processes( process_and_queue_list ) :
@@ -129,10 +114,15 @@ def monitor_processes( process_and_queue_list ) :
 
     That would be getting lost in your testing process, however.
     """
-    for this_tuple in process_and_queue_list :
-        print( this_tuple[ 1 ].get())
-        this_tuple[ 0 ].join()
-    pass
+    while True :
+        for this_tuple in process_and_queue_list :
+            the_message = this_tuple[ 1 ].get_nowait()
+            if the_message != None :
+                this_tuple[ 0 ].put( the_message )
+                if 'DONE'  in the_message :
+                    this_tuple[ 0 ].join()
+                    return
+        time.sleep( 10 )
 
 def usage() :
     """
@@ -167,6 +157,8 @@ def usage() :
     """
     print( usage_info )
 
+MAX_SIMULTANEOUS_TESTS = 4      # number of cores to be used in this test
+
 # These should be imported from the modules.
 EVOCRYPT_TESTS = []
 HASH_TESTS     = [ 'hash0', 'hash1' ]
@@ -180,13 +172,13 @@ CPRNG_TESTS    = []
 
 if __name__ == "__main__" :
 
-    SHORT_ARGS = "d=e=g=hp=t="
+    SHORT_ARGS = "d=e=g=hm=p=t="
     LONG_ARGS  = [  'evocrypt=', 'dieharder=', 'help' , 'password=', 'test=',
-                    'group=', 'psamples=', 'tsamples=' ]
+                    'group=', 'max_tests=', 'psamples=', 'tsamples=' ]
     
-    print( '#' + __filename__ )
-    print( '#' + __version__ )
-    print('#' + str( sys.argv[ 1 : ] ) )
+#    print( '#' + __filename__ )
+#    print( '#' + __version__ )
+#    print('#' + str( sys.argv[ 1 : ] ) )
     
     DIEHARDER_PSAMPLES = '200'
     DIEHARDER_TSAMPLES = '200'
@@ -228,7 +220,7 @@ if __name__ == "__main__" :
         sys.exit( -2 )
     
     for o, a in OPTS :
-        print( "o = '" + o + "' a = '" + a )
+#        print( "o = '" + o + "' a = '" + a )
         if o in ( "--help" ) or o in ( "-h" ) :
             usage()
             sys.exit( -2 )
@@ -247,6 +239,9 @@ if __name__ == "__main__" :
             else :
                 print( "incorrect group", a )
     
+        if o in ( "--max_tests") or o in ( "-m" ) :
+            MAX_SIMULTANEOUS_TESTS = int( a )
+    
         if o in ( "--psamples") or o in ( "-p" ) :
             DIEHARDER_PSAMPLES = str( a )
     
@@ -256,9 +251,7 @@ if __name__ == "__main__" :
     if EVOCRYPT_GROUP_LIST :
         # Construct the list of tests
         for THIS_GROUP in list( EVOCRYPT_GROUPS.keys() ) :
-            print( "THIS_GROUP = ", THIS_GROUP )
             for THIS_TEST in EVOCRYPT_GROUPS[ THIS_GROUP ] :
-                print( "THIS_TEST = ", THIS_TEST )
                 EVOCRYPT_TEST_LIST.append( THIS_TEST )
     
     # construct the dieharder command
@@ -266,15 +259,16 @@ if __name__ == "__main__" :
     # arguments = "-d 1 -g 200 -p 100 -t 100" 
 
     mp.set_start_method( 'fork' )
-    print( 'After set_start_method( fork )' )
 
     # now apply dieharder to each of the necessary tests
-    process_and_queues = [ ]    # tuples of process and queue
-    print( EVOCRYPT_TEST_LIST )
+    PROCESS_AND_QUEUES = [ ]    # tuples of process and queue
+    CURRENT_N_TESTS    = 0
     for THIS_TEST in EVOCRYPT_TEST_LIST :
-        print( THIS_TEST )
-        THE_COMMAND = construct_command( THIS_TEST )
-        print( "the_command = '" + THE_COMMAND + "'" )
+        THE_COMMAND, STDOUT_FILE_NAME = construct_command( THIS_TEST )
+
+        STDOUT_FILE = open( STDOUT_FILE_NAME, 'w' )
+        STDOUT_FILE.write( THE_COMMAND )
+        STDOUT_FILE.close()
 
         THE_QUEUE = mp.Queue()
 
@@ -282,9 +276,22 @@ if __name__ == "__main__" :
 #                                       name=None, args=(), kwargs={}, *,
 #                                       daemon=None)
 
-        THE_PROCESS = mp.Process( target = execute_command_in_forked_process,
+        try :
+            THE_PROCESS = mp.Process(
+                        target = execute_command_in_forked_process,
                         args = ( THE_COMMAND, THE_QUEUE ) )
-        THE_PROCESS.start()
-        process_and_queues.append( ( THE_PROCESS, THE_QUEUE ) )
+        except : # catch *all* exceptions
+            e = sys.exc_info()[ 0 ]
+
+        try :
+            THE_PROCESS.start()
+        except : # catch *all* exceptions
+            e = sys.exc_info()[ 0 ]
+
+        PROCESS_AND_QUEUES.append( ( THE_PROCESS, THE_QUEUE ) )
+
+        CURRENT_N_TESTS += 1
+        if CURRENT_N_TESTS > MAX_SIMULTANEOUS_TESTS :
+            monitor_processes( PROCESS_AND_QUEUES )
+
         time.sleep( 10 )
-        sys.exit( 0 )
