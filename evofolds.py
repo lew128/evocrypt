@@ -200,16 +200,16 @@ if __name__ == "__main__" :
     from evornt import RNT
     from evohashes import HASH0
 
-    print( '#' + __filename__)
-    print( '#' + __version__ )
-    print( '#' + str( sys.argv[ 1 : ] ) )
+#    print( '#' + __filename__)
+#    print( '#' + __version__ )
+#    print( '#' + str( sys.argv[ 1 : ] ) )
 
     # which ones need an '=' ?
     SHORT_ARGS = "ht="
     LONG_ARGS  = [  'help', 'password=', 'test=' ]
 
     TEST_LIST = []      # list of tests to execute
-    PASSWORD = ''
+    PASSWORD = ''       # not used yet, but makes for regularity
 
     try :
         OPTS, ARGS = getopt.getopt( sys.argv[ 1 : ], SHORT_ARGS, LONG_ARGS )
@@ -219,7 +219,7 @@ if __name__ == "__main__" :
         sys.exit( -2 )
 
     for o, a in OPTS :
-        print( "o = '" + o + "' a = '" + a )
+#        print( "o = '" + o + "' a = '" + a )
 
         if o in ( "--help" ) or o in ( "-h" ) :
             usage()
@@ -232,7 +232,7 @@ if __name__ == "__main__" :
             TEST_LIST.append( a )
 
 
-    print( "Test list = ", TEST_LIST )
+#    print( "Test list = ", TEST_LIST )
 
     THE_FOLD = FoldInteger( )
 

@@ -407,10 +407,11 @@ if __name__ == "__main__" :
 #    print '#' + str( sys.argv[ 1 : ] )
 
     # which ones need an '=' ?
-    SHORT_ARGS = "f=ht="
-    LONG_ARGS  = [  'help' , 'file=', 'test=' ]
+    SHORT_ARGS = "f=hp=t="
+    LONG_ARGS  = [  'help' , 'file=', 'password=', 'test=' ]
 
     TEST_LIST = []      # list of tests to execute
+    PASSWORD  = ''      # not used so far, but prevents problems.
     FILE_NAME = ''
 
     try :
@@ -427,6 +428,9 @@ if __name__ == "__main__" :
 
         if o in ( "--file" ) or o in ( "-f" ) :
             FILE_NAME = a
+        
+        if o in ( "--password" ) :
+             PASSWORD = a
 
         if o in ( "--test" ) :
             TEST_LIST.append( a )

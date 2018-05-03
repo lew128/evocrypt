@@ -27,27 +27,27 @@ import sys
 import getopt
 import time
 import multiprocessing as mp
-import subprocess
 
 #
 
 
-def construct_dieharder_command( dtest_list, p_samples, t_samples, the_group,
-                                 the_test ) :
+def construct_dieharder_command( dtest_list, the_group, the_test ) :
     """
     Constructs the diehardervocrypt component of the total command
     dieharder -d x -d y -d z -g 200 -p <p_samples> -t <t_samples> >
     <group>_<test>.stdout 2> <group>_<test>.stderr
     """
     the_command = 'dieharder '
-    if dtest_list[ 0 ] == 'all' :
+    if 'all' in dtest_list : # ignore any other dieharder test numbers
         the_command += '-a -g 200 ' 
     else :
         the_command += '-g 200 ' 
         for the_dtest in dtest_list :
             the_command += ' -d ' + the_dtest
 
-    the_command += ' -p '     + str( p_samples ) + ' -t ' + str( t_samples )
+    # Dieharder man page warns against changing these unless you know
+    # what you are doing. I don't.
+#    the_command += ' -p '     + str( p_samples ) + ' -t ' + str( t_samples )
     the_command += ' >> '     + the_group + '_' + the_test + '.stdout'
     the_command += ' 2> '     + the_group + '_' + the_test + '.stderr;'
     the_command += 'date >> ' + the_group + '_' + the_test + '.stdout' 
@@ -58,6 +58,8 @@ def construct_command( the_test ) :
     """
     Constructs the evocrypt component of the total command
     ./<name>.py --password umberalertness --test <the_test>
+
+    The global variables are semi-permissible in a small program.
     """
     the_command = ''
     the_group = test_to_group( EVOCRYPT_GROUPS, the_test )
@@ -66,8 +68,9 @@ def construct_command( the_test ) :
     the_command += GROUP_TO_FILE_NAMES[ the_group ] + '.py '
     the_arguments = '--password umberallert --test ' + the_test
 
+    the_arguments += ' 2> ' + GROUP_TO_FILE_NAMES[ the_group ]
+    the_arguments += '_' + the_test + '.stderr'
     the_arguments += ' | ' + construct_dieharder_command( DIEHARDER_TEST_LIST,
-                                        DIEHARDER_PSAMPLES, DIEHARDER_TSAMPLES,
                                         the_group, the_test )
         
 
@@ -87,19 +90,24 @@ def test_to_group( groups, the_test ) :
 def execute_command_in_forked_process( the_command_and_arguments, the_queue  ) :
     """
     No comment needed with an excellent name like that!
+
+    Too bad pylint doesn't like it.
+
+    This begins the forked process. Os.System executes the command. This
+    does not need the capabilities of subprocess.
     """
-    #    subprocess.run( args, *, stdin=None, input=None, stdout=None,
-    #    stderr=None, shell=False, cwd=None, timeout=None, check=False,
-    #    encoding=None, errors=None)
 
     try :
         os.system( the_command_and_arguments )
 
     except : # catch *all* exceptions
         the_error = sys.exc_info()[ 0 ]
+        sys.stderr.write( "os.system() failed", str( the_error ) )
         the_queue.put( the_error )
 
-    the_queue.put( "DONE : ", the_command_and_arguments )
+    sys.stderr.write( "execution is DONE\n\n" + the_command_and_arguments \
+                    + '\n\n' )
+    the_queue.put( "execution is DONE : " + the_command_and_arguments + '\n\n' )
     time.sleep( 5 )
     sys.exit( 0 )
 
@@ -116,13 +124,18 @@ def monitor_processes( process_and_queue_list ) :
     """
     while True :
         for this_tuple in process_and_queue_list :
-            the_message = this_tuple[ 1 ].get_nowait()
-            if the_message != None :
-                this_tuple[ 0 ].put( the_message )
+            the_process = this_tuple[ 0 ]
+            the_queue   = this_tuple[ 1 ]
+            if not the_queue.empty() :
+                the_message = the_queue.get_nowait()
+
                 if 'DONE'  in the_message :
-                    this_tuple[ 0 ].join()
+                    sys.stderr.write( 'Found DONE : ' + str( this_tuple) + '\n')
+                    the_process.join()
+                    
+                    # we have an empty slot in the process list
                     return
-        time.sleep( 10 )
+        time.sleep( 1 )
 
 def usage() :
     """
@@ -148,12 +161,9 @@ def usage() :
     --help  Invokes this usage function
     -h      Invokes this usage function
 
-    --psamples Number of P samples to be used by dieharder
-    -p      Defaults to 200
-
-    --tsamples Number of T samples to be used by dieharder
-    -t      Defaults to 200
-
+    These commands work :
+        ./evodieharder.py --group fold --dieharder 2 2> dieharder.stderr
+        ./evodieharder.py --group all  --dieharder 2 2> evodieharder.stderr
     """
     print( usage_info )
 
@@ -172,16 +182,14 @@ CPRNG_TESTS    = []
 
 if __name__ == "__main__" :
 
-    SHORT_ARGS = "d=e=g=hm=p=t="
+    SHORT_ARGS = "b=d=e=g=hm="
     LONG_ARGS  = [  'evocrypt=', 'dieharder=', 'help' , 'password=', 'test=',
-                    'group=', 'max_tests=', 'psamples=', 'tsamples=' ]
+                    'group=', 'max_tests='  ]
     
 #    print( '#' + __filename__ )
 #    print( '#' + __version__ )
 #    print('#' + str( sys.argv[ 1 : ] ) )
     
-    DIEHARDER_PSAMPLES = '200'
-    DIEHARDER_TSAMPLES = '200'
     DIEHARDER_TEST_LIST = [] 
     EVOCRYPT_GROUP_LIST = []
     EVOCRYPT_TEST_LIST  = []
@@ -202,7 +210,8 @@ if __name__ == "__main__" :
                             'prime'    : [],
                             'prng'     : [ 'lcg', 'well512', 'newlib', 'knuth',
                                            'lp5', 'lp256', 'cmwc4096', 'lfsr' ],
-                            'cprng'    : [ 'hash_crypto', 'encode0', 'encode1'],
+                            'cprng'    : [ 'hash_crypto', 'encode0',
+                                           'encode1', 'encode2'],
                             'utils'    : [],
                             'evocrypt' : [],
                            }
@@ -226,27 +235,24 @@ if __name__ == "__main__" :
             sys.exit( -2 )
     
         if o in ( "--dieharder" ) or o in ( '-d' ) :
-            DIEHARDER_TEST_LIST.append( str( a ) )
+            DIEHARDER_TEST_LIST.append( a )
 
-        if o in ( "--evocrypt" ) or o in ( '-e' ) :
+        if o in ( "--evocrypt" ) or o in ( "-e" ) :
             EVOCRYPT_TEST_LIST.append( a )
 
         if o in ( "--group" ) or o in ( '-g' ) :
             if a == 'all' :
                 EVOCRYPT_GROUP_LIST = list( EVOCRYPT_GROUPS.keys() )
             elif a in EVOCRYPT_GROUPS :
-                EVOCRYPT_GROUP_LIST.append( str( a ) )
+                EVOCRYPT_GROUP_LIST.append( a )
             else :
                 print( "incorrect group", a )
+                sys.exit( 0 )
     
+            print( "EVOCRYPT_GROUP_LIST = ", EVOCRYPT_GROUP_LIST )
+
         if o in ( "--max_tests") or o in ( "-m" ) :
             MAX_SIMULTANEOUS_TESTS = int( a )
-    
-        if o in ( "--psamples") or o in ( "-p" ) :
-            DIEHARDER_PSAMPLES = str( a )
-    
-        if o in ( "--tsamples" ) or o in ( '-t' ) :
-            DIEHARDER_TSAMPLES = str( a )
     
     if EVOCRYPT_GROUP_LIST :
         # Construct the list of tests
@@ -264,10 +270,11 @@ if __name__ == "__main__" :
     PROCESS_AND_QUEUES = [ ]    # tuples of process and queue
     CURRENT_N_TESTS    = 0
     for THIS_TEST in EVOCRYPT_TEST_LIST :
+        sys.stderr.write('THIS_TEST = ' + THIS_TEST + "'\n")
         THE_COMMAND, STDOUT_FILE_NAME = construct_command( THIS_TEST )
 
         STDOUT_FILE = open( STDOUT_FILE_NAME, 'w' )
-        STDOUT_FILE.write( THE_COMMAND )
+        STDOUT_FILE.write( THE_COMMAND + '\n\n' )
         STDOUT_FILE.close()
 
         THE_QUEUE = mp.Queue()
@@ -291,7 +298,16 @@ if __name__ == "__main__" :
         PROCESS_AND_QUEUES.append( ( THE_PROCESS, THE_QUEUE ) )
 
         CURRENT_N_TESTS += 1
-        if CURRENT_N_TESTS > MAX_SIMULTANEOUS_TESTS :
+        if CURRENT_N_TESTS >= MAX_SIMULTANEOUS_TESTS :
             monitor_processes( PROCESS_AND_QUEUES )
 
-        time.sleep( 10 )
+            # Monitor doesn't return until a process has ended
+            sys.stderr.write( "Monitor_processes has returned\n" )
+            CURRENT_N_TESTS -= 1
+
+    # if there are no more tests, wait for all processes to finish
+    while CURRENT_N_TESTS > 0 :
+        monitor_processes( PROCESS_AND_QUEUES )
+        CURRENT_N_TESTS -= 1
+
+    sys.exit( 0 )

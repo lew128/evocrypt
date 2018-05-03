@@ -243,7 +243,8 @@ class LcgCrypto() :
             delta        = get_next_higher_prime( delta )
 
         for i in range( self.n_prngs ) :  
-            self.prng_vector[ i ].next( 8, 5 ) #should be dependent on the pw
+            steps = self.the_rnt.password_hash % 64
+            self.prng_vector[ i ].next( 8, steps ) #should be dependent on the pw
 
     def next( self, bit_width, steps ) :
         """
@@ -270,7 +271,7 @@ class LcgCrypto() :
         bit_selection_mask = bit_width - 1
         return_integer = 0
         self.next_prng %= ( self.n_prngs - 1 )
-        for step in range( steps ) :
+        for _ in range( steps ) :
             for bit_index in range( bit_width ) :
     
                 # bit is selected by the last prng in the vector
@@ -404,7 +405,7 @@ class HashCrypto( LcgCrypto ) :
                 the_rnt.password_hash * i + i )
                                        
         # initial steps should be dependent on the password
-        this_value = self.next( 64, 40 )
+        self.next( 64, self.the_rnt.password_hash % 64 )
 
     def next( self, bit_width, steps ) :
         """
@@ -471,9 +472,9 @@ def generate_random_table( the_rnt, n_bytes, bitwidth ) :
 
     # this is 4K bytes as lines of 8-byte words in hexadecimal
     # 4 words per line
-    for this_prng in range( int( n_bytes / ( 8 * 4 ) ) ) :
+    for _ in range( int( n_bytes / ( 8 * 4 ) ) ) :
         the_line = ''
-        for line_count in range( 4 ) :
+        for _ in range( 4 ) :
             the_value = lcg_crypto.next( bitwidth, 1 )
 
             the_line += format( the_value,' >#18X' ) + ','
@@ -591,6 +592,8 @@ if __name__ == "__main__" :
         print( "hash crypto byte rate = ",
                 byte_rate( THE_PRNG, 64, 1024*1024 ) )
 
+    # more conservative tests would be to encrypt the same hrase again
+    # and again.
     if 'encode0' in TEST_LIST :
         # this isn't as clean as encoding entirely text files, but I
         # don't have a large source of just text.  First make it work
@@ -618,42 +621,43 @@ if __name__ == "__main__" :
         '/home/lew/Desktop/Downloads*.sh'
         '/home/lew/Desktop/Downloads*.txt'
         ] 
+        LOG_FILE = open( "evoprngs.log", "w" )
         while True :
             for THIS_DIR in DIR_LIST :
-               FILE_LIST = glob.glob( THIS_DIR )
-               for THIS_FILE in FILE_LIST :
+                FILE_LIST = glob.glob( THIS_DIR )
+                for THIS_FILE in FILE_LIST :
 
-                   THIS_FILE_DATA = open( THIS_FILE, 'rb').read()
-                   print( THIS_FILE, len( THIS_FILE_DATA ) , len(
-                   THIS_FILE_DATA ) % 8 )
+                    THIS_FILE_DATA = open( THIS_FILE, 'rb').read()
+                    print( THIS_FILE, len( THIS_FILE_DATA ) , len(
+                    THIS_FILE_DATA ) % 8 )
 
-                   #Make the file length an exact multiple of 8
-                   # this saves problems below, speeds this up
-                   # genuine encryption would be byte-by-byte.
-                   # this ignores an odd # of bytes at the end of the file
-                   MAX_BYTE_COUNT = len( THIS_FILE_DATA ) - \
+                    #Make the file length an exact multiple of 8
+                    # this saves problems below, speeds this up
+                    # genuine encryption would be byte-by-byte.
+                    # this ignores an odd # of bytes at the end of the file
+                    MAX_BYTE_COUNT = len( THIS_FILE_DATA ) - \
                                     len( THIS_FILE_DATA ) % 8
 
-                   THIS_FILE_BYTE_COUNT = 0
-                   CIPH_WORD = 0
-                   while THIS_FILE_BYTE_COUNT < MAX_BYTE_COUNT :
+                    THIS_FILE_BYTE_COUNT = 0
+                    while THIS_FILE_BYTE_COUNT < MAX_BYTE_COUNT :
+                        CIPH_WORD = 0
 
-                       PLAIN_BYTES = THIS_FILE_DATA[ THIS_FILE_BYTE_COUNT : 
+                        PLAIN_BYTES = THIS_FILE_DATA[ THIS_FILE_BYTE_COUNT : 
                                                   THIS_FILE_BYTE_COUNT + 8 ]
-                       THIS_FILE_BYTE_COUNT += 8
+                        THIS_FILE_BYTE_COUNT += 8
 
-                       if len( PLAIN_BYTES) == 0 :
-                           break
+                        if len( PLAIN_BYTES) == 0 :
+                            break
 
-                       RAND_INT = ENCODE.next( 64, 1 )
-                       PLAIN_INT = struct.unpack( "@Q", PLAIN_BYTES )[ 0 ]
+                        RAND_INT = ENCODE.next( 64, 1 )
+                        PLAIN_INT = struct.unpack( "@Q", PLAIN_BYTES )[ 0 ]
 
-                       CIPH_WORD = PLAIN_INT ^ RAND_INT
+                        CIPH_WORD = PLAIN_INT ^ RAND_INT
 
-#                    print( "ciph_word = ", hex( CIPH_WORD ) )
-                       BIN_VECTOR[ 0 ] = CIPH_WORD
-                       BIN_VECTOR.tofile( FP )
-                       CIPH_WORD = 0
+                        LOG_FILE.write( hex( CIPH_WORD ).encode( )
+                                    encoding = 'UTF-8', errors='strict' )
+                        BIN_VECTOR[ 0 ] = CIPH_WORD
+                        BIN_VECTOR.tofile( FP )
  
 
     if 'encode1' in TEST_LIST :
@@ -693,8 +697,8 @@ if __name__ == "__main__" :
 
         while True :
             THIS_FILE_BYTE_COUNT = 0
-            CIPH_WORD = 0
             while THIS_FILE_BYTE_COUNT < MAX_BYTE_COUNT :
+                CIPH_WORD = 0
 
                 PLAIN_BYTES = THIS_FILE_DATA[ THIS_FILE_BYTE_COUNT : 
                                               THIS_FILE_BYTE_COUNT + 8 ]
@@ -711,7 +715,38 @@ if __name__ == "__main__" :
 #                    print( "ciph_word = ", hex( CIPH_WORD ) )
                 BIN_VECTOR[ 0 ] = CIPH_WORD
                 BIN_VECTOR.tofile( FP )
-                CIPH_WORD = 0
  
+
+
+    if 'encode2' in TEST_LIST :
+        # encrypt the same phrase repeatedly, test result for randomness
+        # Theoretically, this should be identical in result to a random test
+        # of a CRYPTO PRNGenerator.
+        THIS_CRYPTO = CRYPTO( PASSPHRASE, 'desktop', 1 )
+        ENCODE = THIS_CRYPTO.next()
+
+        THE_TEXT = "this is a test0"
+        while True :
+            THIS_TEXT_BYTE_COUNT = 0
+            while THIS_TEXT_BYTE_COUNT < len( THE_TEXT ) :
+                CIPH_WORD = 0
+
+                PLAIN_BYTES = THIS_FILE_DATA[ THIS_TEXT_BYTE_COUNT : 
+                                              THIS_TEXT_BYTE_COUNT + 8 ]
+                THIS_TEXT_BYTE_COUNT += 8
+
+                if len( PLAIN_BYTES) == 0 :
+                    break
+
+                RAND_INT = ENCODE.next( 64, 1 )
+                PLAIN_INT = struct.unpack( "@Q", PLAIN_BYTES )[ 0 ]
+
+                CIPH_WORD = PLAIN_INT ^ RAND_INT
+
+#                    print( "ciph_word = ", hex( CIPH_WORD ) )
+                BIN_VECTOR[ 0 ] = CIPH_WORD
+                BIN_VECTOR.tofile( FP )
+ 
+
 
 
