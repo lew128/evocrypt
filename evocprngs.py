@@ -23,7 +23,6 @@ __history__   = """
 import os
 import sys
 import getopt
-import time
 import random
 import glob
 import struct
@@ -138,6 +137,10 @@ class CRYPTO :
 # I will replace all of these specialized crypto functions with a single
 # function that uses a random set of PRNGs. I was intending to produce
 # a class to do that, didn't see that it replaces these two.
+# OTOH, random is random. Finally, however, the deciding point is always
+# that multiple functions make the attacker's problem exponentially
+# harder. However good NSA's cryptographers are, randomly random is hard
+# to crack.
 
 # That will be merged into the CRYPTO class. This will take a while.
 
@@ -364,8 +367,9 @@ class HashCrypto( LcgCrypto ) :
     """
     Uses the set of hashes to produce a crypto-quality pseudo-random number.
 
-    Individual hash functions may be relatively weak wrt dieharder, but
-    very strong when considered as an ensemble.
+    Individual hash functions may be relatively weak wrt dieharder (but
+    not the functions I provide), but very strong when considered as an
+    ensemble.
 
     Data structure is the vector of instantiated hash functions.
     
@@ -592,7 +596,7 @@ if __name__ == "__main__" :
         print( "hash crypto byte rate = ",
                 byte_rate( THE_PRNG, 64, 1024*1024 ) )
 
-    # more conservative tests would be to encrypt the same hrase again
+    # more conservative tests would be to encrypt the same phrase again
     # and again.
     if 'encode0' in TEST_LIST :
         # this isn't as clean as encoding entirely text files, but I
@@ -629,7 +633,7 @@ if __name__ == "__main__" :
 
                     THIS_FILE_DATA = open( THIS_FILE, 'rb').read()
                     print( THIS_FILE, len( THIS_FILE_DATA ) , len(
-                    THIS_FILE_DATA ) % 8 )
+                           THIS_FILE_DATA ) % 8 )
 
                     #Make the file length an exact multiple of 8
                     # this saves problems below, speeds this up
@@ -654,8 +658,7 @@ if __name__ == "__main__" :
 
                         CIPH_WORD = PLAIN_INT ^ RAND_INT
 
-                        LOG_FILE.write( hex( CIPH_WORD ).encode( )
-                                    encoding = 'UTF-8', errors='strict' )
+                        LOG_FILE.write( hex( CIPH_WORD ).encode( 'UTF-8' ) )
                         BIN_VECTOR[ 0 ] = CIPH_WORD
                         BIN_VECTOR.tofile( FP )
  

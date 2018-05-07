@@ -133,6 +133,9 @@ def monitor_processes( process_and_queue_list ) :
                     sys.stderr.write( 'Found DONE : ' + str( this_tuple) + '\n')
                     the_process.join()
                     
+                    # remove this tuple from the list
+                    process_and_queue_list.remove( this_tuple )
+
                     # we have an empty slot in the process list
                     return
         time.sleep( 1 )
@@ -142,6 +145,10 @@ def usage() :
     This provides 'help' and other usage information.
     """
     usage_info = """
+    --cores
+    -c      Number of cores to be dedicated to the test.
+            Default is currently 4
+
     --dieharder  
     -d      Dieharder test numbers put on the list.
             Defaults to 'all'
@@ -182,9 +189,9 @@ CPRNG_TESTS    = []
 
 if __name__ == "__main__" :
 
-    SHORT_ARGS = "b=d=e=g=hm="
-    LONG_ARGS  = [  'evocrypt=', 'dieharder=', 'help' , 'password=', 'test=',
-                    'group=', 'max_tests='  ]
+    SHORT_ARGS = "c=d=e=g=hm="
+    LONG_ARGS  = [  'cores=', 'evocrypt=', 'dieharder=', 'help' ,
+                    'password=', 'test=', 'group=', 'max_tests='  ]
     
 #    print( '#' + __filename__ )
 #    print( '#' + __version__ )
@@ -230,6 +237,9 @@ if __name__ == "__main__" :
     
     for o, a in OPTS :
 #        print( "o = '" + o + "' a = '" + a )
+        if o in ( "--cores" ) or o in ( '-c' ) :
+            MAX_SIMULTANEOUS_TESTS = int( a )
+
         if o in ( "--help" ) or o in ( "-h" ) :
             usage()
             sys.exit( -2 )
@@ -298,7 +308,7 @@ if __name__ == "__main__" :
         PROCESS_AND_QUEUES.append( ( THE_PROCESS, THE_QUEUE ) )
 
         CURRENT_N_TESTS += 1
-        if CURRENT_N_TESTS >= MAX_SIMULTANEOUS_TESTS :
+        if CURRENT_N_TESTS < MAX_SIMULTANEOUS_TESTS :
             monitor_processes( PROCESS_AND_QUEUES )
 
             # Monitor doesn't return until a process has ended

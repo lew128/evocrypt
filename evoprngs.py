@@ -515,6 +515,10 @@ class LFSR() :
         """
         Standard next function adapted to this PRNG.
         """
+
+        sys.stderr.write( "lfsr.next() cycles   = " + str( cycles )    + '\n' )
+        sys.stderr.write( "lfsr.next() bitwidth = " + str( bit_width ) + '\n' ) 
+
         return_value = 0
         while return_value < ( 1 << bit_width * 2 ) :
             return_value <<= 32
@@ -615,9 +619,9 @@ class LCG():
 
 
         # Cycle it a random number of times
-        cycles = ( xor_result & 
-                   self.the_rnt.randint( self.width_in_bits ) ) % 1024
-        self.next( 1, cycles )
+        cycles = self.the_rnt.next_random_value( xor_result, 
+                                                 self.width_in_bits ) % 1024
+        self.next( self.integer_width, cycles )
 
 
     def next( self, bit_width, cycles ) :
@@ -629,32 +633,50 @@ class LCG():
         numbers, so we return the middle 64 bits.
         """
 
-        return_value = 0
-        while return_value < ( 1 << bit_width * 2 ) :
-            return_value <<= 32
-            for _ in range( cycles ) :
+#        sys.stderr.write( "lcg.next() cycles    = " + str( cycles ) + '\n' )
 
-                lagged_index = ( self.index + self.lag ) % self.integer_vector_size
+#        print( sys.stderr, "lcg.next() bitwidth = " +  str( bit_width ) + '\n' )
+#        sys.stderr.flush()
+
+        for _ in range( cycles ) :
+            return_value = 0
+            # this algorithm has a subtle bias to '1' in the hi bit.
+            while return_value < ( 1 << bit_width * 2 ) :
+                return_value <<= 32
+
+                lagged_index = ( self.index + self.lag ) % \
+                               self.integer_vector_size
 
                 # mask to the max_value to prevent wild growth of the integer
-                vector_value = self.max_integer_mask
-                vector_value &= self.integer_vector[ lagged_index ]
-                vector_value *= self.multiplier
-                vector_value += self.constant
+                new_vector_value  = self.max_integer_mask
+                new_vector_value &= self.integer_vector[ lagged_index ]
+                new_vector_value *= self.multiplier
+                new_vector_value += self.constant
 
-                self.integer_vector[ self.index ] = vector_value
+                self.integer_vector[ self.index ] = new_vector_value
 
                 self.index = ( self.index + 1 ) % self.integer_vector_size
                 self.total_cycles += 1
 
-            return_value +=  self.integer_vector[ self.index ] & \
-                            ( ( 1 << bit_width ) - 1 )
+                # mask for middle bits
+                return_value +=  ( self.integer_vector[ self.index ] >> 32 ) 
+
+                if return_value == 0 :
+                    self.dump_state()
+#                    sys.stderr.write( "lcg.next() bit_width = " + \
+#                                      str( bit_width) + '\n' )
+                    sys.exit( 0 )
+
+#                sys.stderr.write( "lcg.next() rtn_val   = " \
+#                            + hex( return_value) + '\n' )
+
         return self.the_fold.fold_it( return_value, bit_width )
 
     def dump_state( self ) :
         """
         Debug code
         """
+        sys.stderr.write( "lcg dump_state" )
         for element in self.integer_vector :
             print( hex( element ) )
 
@@ -874,7 +896,7 @@ if __name__ == "__main__" :
     THE_RNT = RNT( 4096, 1, 'desktop', PASSWORD )
     BIN_VECTOR = array( 'L' )
     BIN_VECTOR.append( 0 )
-    FP = os.fdopen( sys.stdout.fileno(), 'wb' )
+    SO = os.fdopen( sys.stdout.fileno(), 'wb' )
 
     if 'lcg' in TEST_LIST :
         #  7.97e+05 rands/second Passes dieharder
@@ -898,7 +920,7 @@ if __name__ == "__main__" :
             THE_RANDOM_NUMBER = THE_PRNG.next( 64, 1 )
 
             BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER 
-            BIN_VECTOR.tofile( FP )
+            BIN_VECTOR.tofile( SO )
 #            print( hex( THE_RANDOM_NUMBER )
 
     if 'newlib' in TEST_LIST :
@@ -914,7 +936,7 @@ if __name__ == "__main__" :
 
             THE_RANDOM_NUMBER = THE_PRNG.next( 64, 1 )
             BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
-            BIN_VECTOR.tofile( FP )
+            BIN_VECTOR.tofile( SO )
 #            print( hex( THE_RANDOM_NUMBER ) )
 
     if 'knuth' in TEST_LIST :
@@ -930,7 +952,7 @@ if __name__ == "__main__" :
 
             THE_RANDOM_NUMBER = THE_PRNG.next( 64, 1 )
             BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
-            BIN_VECTOR.tofile( FP )
+            BIN_VECTOR.tofile( SO )
 #            print( hex( THE_RANDOM_NUMBER ) )
 
     if 'lp5' in TEST_LIST :
@@ -950,7 +972,7 @@ if __name__ == "__main__" :
             THE_RANDOM_NUMBER &= ( 1 << 64 ) - 1
 
             BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
-            BIN_VECTOR.tofile( FP )
+            BIN_VECTOR.tofile( SO )
 
     if 'lp256' in TEST_LIST :
         # 8.17e+05 rands / second, very slow
@@ -969,7 +991,7 @@ if __name__ == "__main__" :
             THE_RANDOM_NUMBER &= ( 1 << 64 ) - 1
 
             BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
-            BIN_VECTOR.tofile( FP )
+            BIN_VECTOR.tofile( SO )
 #            print( hex( THE_RANDOM_NUMBER ) )
 
     if 'cmwc4096' in TEST_LIST :
@@ -989,7 +1011,7 @@ if __name__ == "__main__" :
             THE_RANDOM_NUMBER &= ( 1 << 64 ) - 1
 
             BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
-            BIN_VECTOR.tofile( FP )
+            BIN_VECTOR.tofile( SO )
 #            print( hex( THE_RANDOM_NUMBER ) )
 
     if 'well512' in TEST_LIST :
@@ -1009,7 +1031,7 @@ if __name__ == "__main__" :
             THE_RANDOM_NUMBER &= ( 1 << 64 ) - 1
 
             BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
-            BIN_VECTOR.tofile( FP )
+            BIN_VECTOR.tofile( SO )
 #            print( hex( THE_RANDOM_NUMBER ) )
 
 
@@ -1109,14 +1131,12 @@ if __name__ == "__main__" :
                 sys.stdout.flush()
 
     if 'lfsr' in TEST_LIST :
-        FP = os.fdopen( sys.stdout.fileno(), 'wb' )
 
-        print( "instantiating the LFSR" )
         #    ( the_rnt, integer_width, prng_depth, paranoia_level )
-        THE_LFSR = LFSR( THE_RNT, INT_WIDTH, 64, 1 )
+        THE_LFSR = LFSR( THE_RNT, 64, 64, 1 )
 
         while True :
             BIN_VECTOR[ 0 ] = THE_LFSR.next( 64, 1 )
-            BIN_VECTOR.tofile( FP )
+            BIN_VECTOR.tofile( SO )
 
 
