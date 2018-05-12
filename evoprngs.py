@@ -633,11 +633,6 @@ class LCG():
         numbers, so we return the middle 64 bits.
         """
 
-#        sys.stderr.write( "lcg.next() cycles    = " + str( cycles ) + '\n' )
-
-#        print( sys.stderr, "lcg.next() bitwidth = " +  str( bit_width ) + '\n' )
-#        sys.stderr.flush()
-
         for _ in range( cycles ) :
             return_value = 0
             # this algorithm has a subtle bias to '1' in the hi bit.
@@ -660,15 +655,6 @@ class LCG():
 
                 # mask for middle bits
                 return_value +=  ( self.integer_vector[ self.index ] >> 32 ) 
-
-                if return_value == 0 :
-                    self.dump_state()
-#                    sys.stderr.write( "lcg.next() bit_width = " + \
-#                                      str( bit_width) + '\n' )
-                    sys.exit( 0 )
-
-#                sys.stderr.write( "lcg.next() rtn_val   = " \
-#                            + hex( return_value) + '\n' )
 
         return self.the_fold.fold_it( return_value, bit_width )
 
@@ -774,8 +760,8 @@ class Well512( LCG ) :
 
     def next( self, bit_width, cycles ) :
         """
-        I translated-generalized the code, don't get the mod 15, etc. So many
-        unexplained constants, and very specific to 16 integers in the
+        I translated-generalized the code, do not grok the mod 15, etc.
+        Too many unexplained constants, and very specific to 16 integers in the
         state and 32-bit values.
         
         This version passes dieharder, however.
@@ -845,7 +831,10 @@ def usage() :
         --help  Invokes this usage function
         -h      Invokes this usage function
 
-        --test  adds a test to be executed. Current tests are:
+        --int_width < the_width >
+        -i specifies width of integers used in the PRNGs
+
+        --test  < the test > adds a test to be executed. Current tests are:
             'big_distribution'    prints 64M prn bytes to std out
             'medium_distribution' prints 16M prn bytes to std out
             'small_distribution'  prints 4096 prn bytes to std out
@@ -880,10 +869,10 @@ if __name__ == "__main__" :
             usage()
             sys.exit( -2 )
 
-        if o in ( "--test") :
+        if o in ( "--test") or o in ( "-t" ) :
             TEST_LIST.append( a )
 
-        if o in ( "--int_width") :
+        if o in ( "--int_width" ) or o in ( "-i" ) :
             INT_WIDTH = int( a )
 
         if o in ( "--password") or o in ( "-p" ) :

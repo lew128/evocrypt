@@ -921,6 +921,10 @@ if __name__ == "__main__" :
 
 #SINGLE_PROGRAM_FROM_HERE
     # Here no file operation has been specified, so we use stdin/out
+    # example command :
+    # ./evocrypt.py --password umberalertness < TODO.crypt > TODO.new \
+    # 2> TD.stderr
+
     crypt( PASSWORD, SYSTEM_TYPE, PARANOIA_LEVEL )
 
     sys.exit( 0 )

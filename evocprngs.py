@@ -162,8 +162,8 @@ class LcgCrypto() :
         """
         Initializes N LCGs of bit_width and lcg_depth.
 
-        The goal is to calculate and set ( seed, int_width, lcg_array_size,
-        multiplier, constant, lag ) for each LCD instantiated.
+        The goal is to calculate and set the tuple ( seed, int_width,
+        lcg_array_size, multiplier, constant, lag ) for each LCD instantiated.
 
             lcg_array_size is the # of prng_bit_width integers in the array.
 

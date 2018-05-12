@@ -29,6 +29,7 @@ import os
 import sys
 import getopt
 from   array import array
+import copy
 
 #SINGLE_PROGRAM_FROM_HERE
 
@@ -99,6 +100,7 @@ class HASH0( ) :
         self.next_index       = 0
         self.rnt              = rnt
         self.integer_vector   = []
+        self.backup_vector    = []
 
 
         # A simple initialization.  Could get the next higher prime,
@@ -123,10 +125,58 @@ class HASH0( ) :
         self.update( self.entropy_bits )
         self.entropy_bits &= self.max_integer_mask
 
+    def save_int_vector( self ) :
+        """
+        Used in testing the hashes.
+        I should add an optional param to each to allow saving and
+        restoring the vector's in the user's space rather than this
+        inside-the-hash space. I can't quite see a use, but it seems
+        right, a building block I can make structures out of.
+        """
+        self.backup_vector = copy.deepcopy( self.integer_vector )
+
+    def restore_int_vector( self ) :
+        """
+        Restore the original vector.
+        """
+        self.integer_vector = copy.deepcopy( self.backup_vector )
+        
+    def nibble_change_to_vector( self, the_bit_string ) :
+        """
+        Making more changes to the integer vector from each bit in a byte
+        or integer. Assume it is an integer for now, deal with
+        complexity later.
+        """
+        while( the_bit_string ) :
+            niblet = the_bit_string & 0x0f
+            the_bit_string >>= 4
+
+            self.next_index += 1 
+            self.next_index %= self.hash_depth
+            self.integer_vector[ self.next_index ] *= niblet
+
+    def big_change_to_vector( self, the_bit_string ) :
+        """
+        Making more changes to the integer vector from each bit in a byte
+        or integer. Assume it is an integer for now, deal with
+        complexity later.
+        """
+        this_random = 0
+        while this_random < the_bit_string :
+            this_random << 32
+            this_random += self.rnt.randint( 64 )
+
+        # overkill
+        this_random ^= self.rnt.randint( 64 )
+
+        # now we have a value as at least as long as the parameter
+        this_random ^= the_bit_string # mix them
+
+        self.nibble_change_to_vector( this_random )
 
     def update( self, the_update ) :
         """ 
-        Mixes the value into the array of bits.
+        Mixes the value into the array of aits.
         Problem of types, this handles strings and integers and arrays
         of strings and integers.
 
@@ -137,6 +187,11 @@ class HASH0( ) :
 
         There are many possible update algorithms that will work with
         this basic structure, and thus more elements of HASH_FUNCTIONS[].
+
+        This one is designed to produce 50% changes in the digest for a
+        one-bit update. Easy to overdo that, except that you can't
+        change more than 50% if they are random in the first place, so who
+        can tell you did? Thus, overkill is the way to go.
         """
         if isinstance( the_update, str ) :
             for this_byte in the_update :
@@ -247,50 +302,6 @@ class HASH1( HASH0 ) :
     This uses a more general update method.
 
     """
-    def __init__( self, rnt, integer_width, hash_depth ) :
-        """
-        Uses an random number table accessed as bitstrings to compute
-        entropy beginning with the entropy_bits.
-
-        integer_width is the size of the integer used.
-        hash_depth is the number of integers in the vector.  This should
-        be a prime number to prevent any synchrony in update.
-        """
-        self.entropy_bits     = rnt.password_hash
-        self.integer_width    = integer_width
-        self.hash_depth       = hash_depth
-        self.max_integer      = 1 << integer_width
-        self.max_integer_mask = self.max_integer - 1
-        self.next_index       = 0
-        self.rnt              = rnt
-        self.integer_vector   = []
-
-
-        # A simple initialization.  Could get the next higher prime,
-        # multiply by an index into the global 4K_RANDOM_BYTES, etc.
-        # Goal is 'random' bits in the array at the start of mixing the
-        # input data, and different in this version of the program than
-        # any other.
-        #
-        # need a semi-random seed from the entropy bits
-
-        for _ in range( hash_depth ) :
-            integer_0 = rnt.randint( integer_width )
-            self.entropy_bits ^= integer_0
-
-            integer_1 = rnt.randint( integer_width )
-            self.entropy_bits += integer_1
-
-            integer_2  = rnt.randint( integer_width )
-            self.entropy_bits += integer_2
-
-            the_integer = self.entropy_bits ^ integer_0 ^ integer_1 ^ integer_2
-            self.integer_vector.append( the_integer )
-
-        self.update( self.entropy_bits )
-        self.entropy_bits &= self.max_integer_mask
-
-
     def update( self, the_update ) :
         """ 
         Mixes the value into the array of bits.
@@ -368,8 +379,90 @@ class HASH1( HASH0 ) :
         for j in range( self.hash_depth ) :
             self.integer_vector[ j ] &= self.max_integer_mask
 
+class HASH2( HASH0 ) :
+    """
+    This uses a yet more general update method.
+    """
+    def update( self, the_update ) :
+        """ 
+        Mixes the value into the array of bits.
+        Problem of types, this handles strings and integers and arrays
+        of strings and integers.
 
-HASH_FUNCTIONS = [ HASH0, HASH1 ]
+        Algorithm is to multiply the integer_vector[ next_index ] by the
+        byte value, then shift the next 8 numbers left or right
+        according to the bits in the byte, adding '1' or max_int
+        sometimes.
+
+        There are many possible update algorithms that will work with
+        this basic structure, and thus more elements of HASH_FUNCTIONS[].
+        """
+        if isinstance( the_update, str ) :
+            for this_byte in the_update :
+                # degenerate case causes right shifts, small numbers,
+                # and loss of entropy in the vector
+                if ord( this_byte ) == 0 :
+                    self.big_change_to_vector( this_byte )
+
+                # a big change to one value
+                self.integer_vector[ self.next_index ] *= ord( this_byte )
+                # the next 8 values are shifted according to bit
+                # settings in each byte
+                for i in range( 8 ) :
+                    self.next_index += 1 
+                    self.next_index %= self.hash_depth
+                    if ord( this_byte ) & ( 1 << i ) :
+                        self.integer_vector[ self.next_index ] <<= 1
+                        if i & 0x01 :
+                            self.integer_vector[ self.next_index ] += 1
+                    else :
+                        self.integer_vector[ self.next_index ] >>= 1
+                        if i & 0x01 :
+                            self.integer_vector[ self.next_index ] += \
+                                    self.max_integer
+
+        elif isinstance( the_update, int ) :
+            while the_update :
+                # degenerate case causes right shifts, small numbers,
+                # and loss of entropy in the vector
+                this_byte = the_update & 0xFF
+                if this_byte == 0 :
+                    self.big_change_to_vector( the_update )
+
+                the_update >>= 8
+
+                # a big change to one value
+                self.integer_vector[ self.next_index ] *= this_byte
+                # the next 8 values are shifted according to bit
+                # settings in each byte
+                for i in range( 8 ) :
+                    self.next_index += 1 
+                    self.next_index %= self.hash_depth
+                    if this_byte & ( 1 << i ) :
+                        # bit is 1
+                        self.integer_vector[ self.next_index ] <<= 1
+                        # on odd bits, skip an index
+                        if i & 0x01 :
+                            self.integer_vector[ self.next_index ] += 1
+                    else :
+                        # bit is zero
+                        self.integer_vector[ self.next_index ] >>= 1
+                        if i & 0x01 :
+                            # odd bits, set a bit on the far left
+                            self.integer_vector[ self.next_index ] += \
+                                    self.max_integer
+
+        elif isinstance( the_update, list or dict ) :
+            print( "update with a list or dict" )
+            sys.exit( 1 )
+
+        # the integers grow without bound in the basic update.
+        # mask the integers back into range.
+        for j in range( self.hash_depth ) :
+            self.integer_vector[ j ] &= self.max_integer_mask
+
+
+HASH_FUNCTIONS = [ HASH0, HASH1, HASH2 ]
 
 #SINGLE_PROGRAM_TO_HERE
 
@@ -517,6 +610,21 @@ if __name__ == "__main__" :
     # add another test generating a sequence of pairs of 64-bit integers
     # which differ from each other in 1 bit, check the distribution of
     # bits that differ between the two hash values produced by the two
-    # used as updates. 
-    
+    if 'hash2' in TEST_LIST :
+        # ( password, integer_width, hash_depth ) :
+        THE_HASH = HASH2( THE_RNT, 64, 31 )
+
+        NEW_UPDATE = int( THE_HASH.hexdigest(), 16 ) & 0xFF
+        
+        while 1 :
+            THE_HASH.update( str( NEW_UPDATE ) )
+            THE_RANDOM_NUMBER = THE_HASH.intdigest()
+
+            BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
+            BIN_VECTOR.tofile( FP )
+
+#            print( hex( THE_RANDOM_NUMBER ) )
+
+            NEW_UPDATE = THE_RANDOM_NUMBER & 0xFF
+
 
