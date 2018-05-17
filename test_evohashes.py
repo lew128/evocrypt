@@ -27,15 +27,15 @@ def tally_integer_bits( i, j, tally_array, to_be_tallied ) :
 
     Should be general wrt the string length.
     """
-    if not j :
-        for i in range( 64 ) :
-            if ( 1 << i ) & to_be_tallied :
-                tally_array[ i ] += 1
-    else :
+    if j :
         for i in range( 64 ) :
             for j in range( 64 ) :
                 if ( 1 << i ) & to_be_tallied :
                     tally_array[ i ][ j ] += 1
+    else :
+        for i in range( 64 ) :
+            if ( 1 << i ) & to_be_tallied :
+                tally_array[ i ] += 1
 
 def analyze_and_print_xor_bits( xor_bits, bit_string_length ) :
     """
@@ -58,9 +58,14 @@ def analyze_and_print_xor_bits( xor_bits, bit_string_length ) :
     # N*N = number of cells, but that count  should be adjusted by the
     # length of the diagonal, which doesn't contribute counts
     # adjustment is the diff in # of cells in a 
-    mean_tally_bits = total_tally_bits / ( 12 ** 2 ) - \
-                                         ( ( 12 ** 2 ) - ( 11 ** 2 ) )
+    mean_tally_bits = total_tally_bits / ( 12 ** 2 ) 
+    
+        # - \ ( ( 12 ** 2 ) - ( 11 ** 2 ) )
+
     print( "\nmean_tally_bits = ", mean_tally_bits )
+    self.assertTrue( mean_tally_bits > 30
+                         and mean_tally_bits < 34,
+                         mean_tally_bits )
     for i in range( 12 ) :
         print( i, [ x for x in xor_bits[ i ] ] )
 
@@ -101,6 +106,130 @@ class TestEvoHashes( unittest.TestCase ) :
 
                 self.assertTrue( initial_hash_value != updated_hash_value )
         
+    def test_bits0( self ) :
+        """
+        a more comprehehsive test of bit changes and distribution.
+
+        Design will move two bits independently across zeros and two
+        zeroes across ones. The two-bit and two-zero cases being one bit
+        different in the value used for the update. Then the updates
+        must be 50% different, on average.
+
+        11 May 2018. This works, it seems to me, although I had to think
+        many minutes about some of these tests and conditions to understand
+        why results are the way they are.
+
+        Key piece of thinking is, I think : in each of 2 hashes about
+        50% of the bits will be set.  At random, those will have the
+        same value 50% of the time. Hash0 and 1 functions produce
+        hashes that are about 32 for single bit differences, and all
+        other differences, in fact. 32 is 64/2, it is exactly correct.
+
+        So something new with HASH2.
+
+        This tests each hash function against single and 2 combinations of
+        single bits set at BIT_POSITIONS. Those values check for some
+        obvious edge effects. This runs fast, more could be added.
+
+        TODO : the zero in the ones version, trip a flag and invert the
+        hash update value.
+
+        First to check with big changes, a different version of this
+        test.  test_bit0 uses strings as the update, not at all minimal
+        differences.
+
+        For all of these, the mean tally bits is 30-32. Some regulartity
+        from left to right in fewer bits changed to more, but not more
+        than that. Patterns are the same binary vs replicated text strings
+        of the hex, nearly the same numbers.
+
+        So 31-33 is a natural boundary, exactly consistent with theory.
+        This test was convincing, those are good hashes, however slow
+        they are.
+        """
+
+        BIT_POSITIONS = [ 63, 60, 55, 50, 30, 24, 23, 9, 8, 7, 2, 1 ]
+
+        # 2D arrays of counts of changed bits with the change at each
+        # location
+        a_b_bits_changed  =   [ [ 0 for _ in range( len( BIT_POSITIONS ) ) ]
+                                for _ in range( len( BIT_POSITIONS ) ) ]
+        b_c_bits_changed  =   [ [ 0 for _ in range( len( BIT_POSITIONS ) ) ]
+                                for _ in range( len( BIT_POSITIONS ) ) ]
+        a_c_bits_changed  =   [ [ 0 for _ in range( len( BIT_POSITIONS ) ) ]
+                                for _ in range( len( BIT_POSITIONS ) ) ]
+
+        # 1D lists of tallies at each bit location in the string
+        # does this need to be a loop with ranges, a full set of tests
+        # at each? Overkill, but ...
+        a_tally_array      =   [ 0 for _ in range( 64 ) ]
+        b_tally_array      =   [ 0 for _ in range( 64 ) ]
+        c_tally_array      =   [ 0 for _ in range( 64 ) ]
+        a_b_tally_array    =   [ 0 for _ in range( 64 ) ]
+        b_c_tally_array    =   [ 0 for _ in range( 64 ) ]
+        a_c_tally_array    =   [ 0 for _ in range( 64 ) ]
+
+        for hash_function in HASH_FUNCTIONS :
+            the_hash = hash_function( self.the_rnt, 64, 19 )
+            the_hash.save_int_vector()
+
+            # for each element in the bit-positions list
+            for i in range( len( BIT_POSITIONS ) ) :
+                a_hash_update = 1 << BIT_POSITIONS[ i ]
+                # against each other element in the bit-positions list
+                for j in range( len( BIT_POSITIONS ) ) :
+                    # i and j are equal on the diagonal
+                    b_hash_update = 1 << BIT_POSITIONS[ j ]
+
+                    # restore hash state, update, get digest
+                    the_hash.restore_int_vector()
+                    the_hash.update( hex( a_hash_update ) * 5 )
+                    a_hash_value     = the_hash.intdigest()
+
+                    # restore hash state, update, get digest
+                    the_hash.restore_int_vector()
+                    the_hash.update( hex( b_hash_update ) * 5 )
+                    b_hash_value     = the_hash.intdigest()
+
+                    # restore hash state, update, get digest
+                    the_hash.restore_int_vector()
+                    the_hash.update( hex( a_hash_update ^ b_hash_update ) * 5 )
+                    c_hash_value     = the_hash.intdigest()
+
+                    xor_a_b_bit_diff = a_hash_value ^ b_hash_value
+                    xor_b_c_bit_diff = b_hash_value ^ c_hash_value
+                    xor_a_c_bit_diff = a_hash_value ^ c_hash_value
+
+                    # totals of the number of bits changed
+                    a_b_bits_changed[ i ][ j ] = countSetBits( xor_a_b_bit_diff)
+                    b_c_bits_changed[ i ][ j ] = countSetBits( xor_b_c_bit_diff)
+                    a_c_bits_changed[ i ][ j ] = countSetBits( xor_a_c_bit_diff)
+
+                    # collect bit counts in each bit position as a first
+                    # measure
+                    tally_integer_bits( i, None, a_tally_array, a_hash_value )
+                    tally_integer_bits( i, None, b_tally_array, b_hash_value )
+                    tally_integer_bits( i, None, c_tally_array, c_hash_value )
+
+                    tally_integer_bits( i, None, a_b_tally_array,
+                                        xor_a_b_bit_diff)
+                    tally_integer_bits( i, None, b_c_tally_array,
+                                        xor_b_c_bit_diff)
+                    tally_integer_bits( i, None, a_c_tally_array,
+                                        xor_a_c_bit_diff)
+                    
+            print( "\n\nthe_hash = ", the_hash )
+            print( "\na_b_bits_changed = ", a_b_bits_changed )
+ 
+            analyze_and_print_xor_bits( a_b_bits_changed, 64 )
+
+            print( "\nb_c_bits_changed = ", b_c_bits_changed )
+            analyze_and_print_xor_bits( b_c_bits_changed, 64 )
+
+            print( "\na_c_bits_changed = ", a_c_bits_changed )
+            analyze_and_print_xor_bits( a_c_bits_changed, 64 )
+
+
     def test_bits1( self ) :
         """
         a more comprehehsive test of bit changes and distribution.
@@ -127,6 +256,12 @@ class TestEvoHashes( unittest.TestCase ) :
         This tests each hash function against single and 2 combinations of
         single bits set at BIT_POSITIONS. Those values check for some
         obvious edge effects. This runs fast, more could be added.
+
+        TODO : the zero in the ones version, trip a flag and invert the
+        hash update value.
+
+        I maybe fixed things, now the different hashes are very uniform,
+        31-33 changes for a single bit.  That is correct.
         """
 
         BIT_POSITIONS = [ 63, 60, 55, 50, 30, 24, 23, 9, 8, 7, 2, 1 ]
@@ -141,6 +276,8 @@ class TestEvoHashes( unittest.TestCase ) :
                                 for _ in range( len( BIT_POSITIONS ) ) ]
 
         # 1D lists of tallies at each bit location in the string
+        # does this need to be a loop with ranges, a full set of tests
+        # at each? Overkill, but ...
         a_tally_array      =   [ 0 for _ in range( 64 ) ]
         b_tally_array      =   [ 0 for _ in range( 64 ) ]
         c_tally_array      =   [ 0 for _ in range( 64 ) ]
@@ -160,21 +297,19 @@ class TestEvoHashes( unittest.TestCase ) :
                     # i and j are equal on the diagonal
                     b_hash_update = 1 << BIT_POSITIONS[ j ]
 
-                    # this assumes all hash conditions are equivalent
-                    # maybe not, but first see if degenerate conditions
-                    # then just copy the array before every hash update()
-
+                    # this makes initial hash conditions identical
+                    the_hash.restore_int_vector()
                     the_hash.update( a_hash_update )
                     a_hash_value     = the_hash.intdigest()
 
+                    # this makes initial hash conditions identical
                     the_hash.restore_int_vector()
                     the_hash.update( b_hash_update )
                     b_hash_value     = the_hash.intdigest()
 
-                    # avoid the ^ and also make blank diagonal
-                    if i == j :
-                        the_hash.restore_int_vector()
-                        the_hash.update( a_hash_update ^ b_hash_update )
+                    # this makes initial hash conditions identical
+                    the_hash.restore_int_vector()
+                    the_hash.update( a_hash_update ^ b_hash_update )
                     c_hash_value     = the_hash.intdigest()
 
                     xor_a_b_bit_diff = a_hash_value ^ b_hash_value
@@ -188,9 +323,10 @@ class TestEvoHashes( unittest.TestCase ) :
 
                     # collect bit counts in each bit position as a first
                     # measure
-                    tally_integer_bits( i, None, b_tally_array, b_hash_value )
                     tally_integer_bits( i, None, a_tally_array, a_hash_value )
+                    tally_integer_bits( i, None, b_tally_array, b_hash_value )
                     tally_integer_bits( i, None, c_tally_array, c_hash_value )
+
                     tally_integer_bits( i, None, a_b_tally_array,
                                         xor_a_b_bit_diff)
                     tally_integer_bits( i, None, b_c_tally_array,
@@ -199,10 +335,13 @@ class TestEvoHashes( unittest.TestCase ) :
                                         xor_a_c_bit_diff)
                     
             print( "\n\nthe_hash = ", the_hash )
-            print( "a_b_bits_changed = ", a_b_bits_changed )
- 
+            print( "\na_b_bits_changed = ", a_b_bits_changed )
             analyze_and_print_xor_bits( a_b_bits_changed, 64 )
+
+            print( "\nb_c_bits_changed = ", b_c_bits_changed )
             analyze_and_print_xor_bits( b_c_bits_changed, 64 )
+
+            print( "\na_c_bits_changed = ", a_c_bits_changed )
             analyze_and_print_xor_bits( a_c_bits_changed, 64 )
 
 

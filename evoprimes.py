@@ -231,6 +231,38 @@ def get_next_higher_prime( beginning_integer ) :
     print( "begin_integer = ", hex( begin_integer ) )
     print_stacktrace()
 
+def get_next_lower_prime( beginning_integer ) :
+    """
+        Begins searching down for a prime at the beginning_integer, returns
+        the first one found.
+    """
+    # if a negative number, the question is, how can it be negative?
+    # Python integers have to be negative coming in, it isn't an
+    # unsigned vs signed issue.
+    begin_integer = int( beginning_integer )
+    if begin_integer < 0 :
+        print( "negative beginning_integer", hex( begin_integer ) )
+        print_stacktrace()
+        sys.exit( -1 )
+
+    # if even, make it odd
+    if begin_integer & 0x01 :
+        n = begin_integer
+    else :
+        n = begin_integer - 1
+
+    # assume there will be a prime within 1000 * 2
+    # is_prime guarantees 64 tries of Rabin-Miller
+    for _ in range( 10000 ) :   
+        if is_prime( n ) :
+            return n
+        else :
+            n -= 2
+
+    print( "Failure after 1000 tries." )
+    print( "begin_integer = ", hex( begin_integer ) )
+    print_stacktrace()
+
 #SINGLE_PROGRAM_TO_HERE
 
 #

@@ -14,14 +14,15 @@ class TestEvoPrimes( unittest.TestCase ) :
                           ]
         for this_number in prime_numbers :
             print( this_number )
-            self.assertTrue( isPrime( this_number + 0 ) )
-            self.assertFalse( isPrime( this_number + 1 ) )
-            self.assertFalse( isPrime( this_number + 4 ) )
+            self.assertTrue(  is_prime( this_number + 0 ) )
+            self.assertFalse( is_prime( this_number + 1 ) )
+            self.assertFalse( is_prime( this_number + 4 ) )
 
  
 if __name__ == '__main__':
 #    sys.path.append( '../' )
     sys.path.insert( 0, '/home/lew/EvoCrypt' )
-    from evoprimes import rabinMiller, isPrime
+
+    from evoprimes import rabin_miller, is_prime
 
     unittest.main()

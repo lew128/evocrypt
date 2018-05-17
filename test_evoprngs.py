@@ -20,7 +20,7 @@ class TestEvoPrngs( unittest.TestCase ) :
         # hard code desired RNT bytes and paranoia level for now
         self.the_rnt = RNT( 4096, 2, 'desktop', 'TestEvoFolds' )
 
-        self.the_fold = FOLD_INTEGER()
+        self.the_fold = FoldInteger()
         self.N        = 32 * 1024 
 
 
@@ -182,13 +182,36 @@ class TestEvoPrngs( unittest.TestCase ) :
                                             result_width ) )
 
         print( results )
-                                                                                                     
+
+    def test_PRNGs( self )
+    """
+    Checks to be sure that all 8 of the functions are called.
+    """
+        print( "\ntest_PRNGs" )
+
+        prngs = PRNGS()
+        for integer_width in [ 64, 128, 256 ] :
+            for vec_depth in [ 7, 29, 31, 43 ] :
+                for paranoia_level in [ 1, 2, 3 ] :
+
+                    for _ in range( 20 ) :
+                        max_integer = ( 1 << integer_width ) - \
+                                        random.getrandbits( 36 )
+                        big_prime = get_next_higher_prime(
+                                                int( ( max_integer * 4 ) / 5 )
+                        small_prime = get_next_higher_prime( 
+                                                int( ( max_integer * 1 ) / 5 )
+                        lag = int( vec_depth / 2 )
+                        print( prngs.next( self.the_rnt, bit_width,
+                               integer_vector_depth, paranoia_level,
+                               multiplier, constant, lag ))
+
 if __name__ == '__main__':
 #    sys.path.append( '../' )
     sys.path.insert( 0, '/home/lew/EvoCrypt' )
     from evoprimes import get_next_higher_prime
-    from evofolds import FOLD_INTEGER
+    from evofolds import FoldInteger
     from evornt   import RNT
-    from evoprngs import LCG, MersenneTwister, CRYPTO, byte_rate, \
-                    CRYPTO_PRNG_FUNCTIONS
+    from evoprngs import LCG, byte_rate, PRNGs
+
     unittest.main()

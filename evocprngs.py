@@ -18,6 +18,9 @@ __license__   = "None"
 __filename__  = "evocprngs.py"
 __history__   = """
 0.1 - 20170706 - started this file by splitting evoprngs.py
+
+TODO :
+    write the CPRNG that uses a randomly-selected ensemble of PRNGs.
 """
 
 import os
@@ -33,7 +36,7 @@ from evornt    import RNT
 from evoprimes import get_next_higher_prime
 from evoutils  import print_stacktrace
 from evoprngs  import PRNGs, KnuthMMIX, KnuthNewLib, LongPeriod5, \
-                      LongPeriod256, CMWC4096, LFSR, LCG, byte_rate
+                      LongPeriod256, CMWC4096, LCG, byte_rate
 
 #SINGLE_PROGRAM_FROM_HERE
 
@@ -105,8 +108,6 @@ class CRYPTO :
             self.system_paranoia[ system_type ][ paranoia_level ]
 
         self.crypto_functions = [ LcgCrypto, HashCrypto ]
-        # twister fails in crypto, haven't debugged that yet.
-#        self.crypto_functions = [ LcgCrypto, HashCrypto ]
         self.next_crypto_index = 0
 
         # instantiate a random number table
@@ -142,7 +143,230 @@ class CRYPTO :
 # harder. However good NSA's cryptographers are, randomly random is hard
 # to crack.
 
-# That will be merged into the CRYPTO class. This will take a while.
+# This next will be base of the CRYPTO class. 
+
+# 2 steps to that structure, first write the general CPRNG class from
+# the LgcCrypto, then make it the base class.
+
+class PrngCrypto( LcgCrypto ) :
+    """
+    Uses a set of LCGs to produce a crypto-quality pseudo-random number.
+
+    Algorithm is to use N LCGs, with the last LCG selecting the particular
+    bits from the others.
+
+    This uses randomly chosen primes for the two constants, and
+    increasing primes for the lags to produce the longest cycles.
+
+    I don't know where I got this algorithm, but I can't find a ref.
+    It seems a genealization of the idea behind the LCG, but ...
+    """
+
+    def __init__( self, the_rnt, n_prngs, prng_bit_width, lcg_depth ) :
+        """
+        Initializes N LCGs of bit_width and lcg_depth.
+
+        The goal is to calculate and set the tuple ( seed, int_width,
+        lcg_array_size, multiplier, constant, lag ) for each LCD instantiated.
+
+            lcg_array_size is the # of prng_bit_width integers in the array.
+
+            prng_bit_width is bits in the intgers. It must be a power of
+            2 for this code to work because of the calculation of the
+            bit-selection mask.
+            
+            The values of multiplier, constants and lag are calculated.
+            Multiplier decreases from a 10% less than 'max_int' for the
+            array width.  Constant increases from 10% above 0. 
+            Both change by an amount making N fit into 1/3rd of the range.
+            
+            Discussions say they only need be relatively prime, this makes
+            them a prime.
+ 
+            The lag is prime and also different across the N arrays to prevent
+            short cycles.
+
+        """
+
+        self.entropy_bits        = the_rnt.password_hash
+        self.the_rnt             = the_rnt
+        self.n_prngs             = n_prngs
+        self.integer_width       = prng_bit_width
+        self.lcg_depth           = lcg_depth
+
+        self.bit_selection_mask  = prng_bit_width - 1
+        self.next_prng           = 0
+        self.max_integer_mask    = ( 1 << prng_bit_width ) - 1
+        self.max_integer         =   1 << prng_bit_width
+
+        self.total_cycles        = 0
+        self.prng_vector         = []
+
+        self.the_fold            = FoldInteger( )
+
+
+        # hash_depth should be differently different than lcg_depth
+        # good enough for now.
+        hashes = HASHES( the_rnt, self.integer_width, self.lcg_depth )
+        the_hash = hashes.next()
+
+        hash_of_passphrase = the_hash.intdigest()
+
+        # small enough it doesn't mis-order the numbers, large enough
+        # it won't be close to the calculated value
+        fold_width = int( prng_bit_width *.6 )
+        folded_hash_of_passphrase = \
+            self.the_fold.fold_it( hash_of_passphrase, fold_width )
+            
+        # multipliers and additive constants :
+        # need 2 series of primes a good distance apart, say the low
+        # range beginning from low at 10% to high at 40 and high range
+        # beginning 60% to 90% We need N of each.
+        # This is predictable from standard integer widths, so we also need the
+        # entropy mixed into this.
+        current_max = ( self.entropy_bits + folded_hash_of_passphrase ) % \
+                        int( self.max_integer * .9 )
+        current_min = ( self.entropy_bits + folded_hash_of_passphrase ) % \
+                        int( self.max_integer * .1 )
+
+        # 1/Nth of 30% of the total range
+        delta        = int( ( current_max * .3 ) / self.n_prngs )
+
+        lag = 7   # initial lag.  Even if the primes become > n_prngs, it
+                # is OK because that wraps around the vector.
+        the_prngs = PRNGs()
+        for i in range( self.n_prngs ) :
+            multiplier   = get_next_higher_prime( current_max )
+            constant     = get_next_higher_prime( current_min )
+            lag          = get_next_higher_prime( lag )
+
+            # seed, rnt, integer_width, n_integers, multiplier, constant, lag 
+            self.prng_vector.append( the_prngs.next( self.the_rnt,
+                                          self.integer_width, self.lcg_depth,
+                                          multiplier, constant, lag ) )
+
+            current_max -= delta
+            current_min += delta
+            lag         += 2
+            delta        = get_next_higher_prime( delta )
+
+        for i in range( self.n_prngs ) :  
+            steps = self.the_rnt.password_hash % 64
+            self.prng_vector[ i ].next( 8, steps ) #should be dependent on the pw
+
+    def next( self, bit_width, steps ) :
+        """
+        Uses the last word in the int_vector to select bits from the
+        others. Cycle last and next_lcd steps times, then select a bit
+        from next_lcd using the low-order bits of the 9th LCG.
+
+       'steps' is unnecessarily tricky, but is the kind of complexity
+        that makes breaking any individual set harder.  The intent is to
+        cycle the PRNG a variable number of times based on the password
+        before returning a value. This can't make our
+        pseudo-random-number generator weaker, at 128+ bit integers and 64
+        integers deep , they are individually very likely have long cycles.
+        Combined, if initialized both intelligently and differently
+        and using different constants for everything, it must be effectively
+        infinite.  But, this is another variable in that, another complexity.
+
+        So not one that likely fuzzes any statistics beyond what they were,
+        but certainly one that works against any other attack.
+        """
+
+        # We want an index into the bit-width bits, which must be less than
+        # bit_width.  That is a power of 2, of course.
+        bit_selection_mask = bit_width - 1
+        return_integer = 0
+        self.next_prng %= ( self.n_prngs - 1 )
+        for _ in range( steps ) :
+            for bit_index in range( bit_width ) :
+    
+                # bit is selected by the last prng in the vector
+                selected_bit_index = \
+                            self.prng_vector[ self.n_prngs - 1 ].next(
+                                bit_width, 1 ) &  bit_selection_mask 
+    
+                lcg_value = \
+                    self.prng_vector[ self.next_prng ].next( bit_width, 1 )
+                self.next_prng += 1
+                self.next_prng %= ( self.n_prngs - 1 )
+    
+                # shift a bit to the selected bit index
+                bit_mask = 1 << selected_bit_index
+    
+                # mask to select the bit value
+                selected_bit_value = lcg_value & bit_mask
+    
+                # shift the selected bit to the 0th position
+                bit_value = selected_bit_value >> selected_bit_index 
+    
+                # put the unshifted bit into the return byte
+                return_integer |= ( bit_value << bit_index )
+    
+        self.total_cycles += steps
+        return return_integer & ( ( 1 << bit_width ) - 1 )
+
+
+    def dump_state( self ) :
+        """
+        Debug code
+        """
+        for element in self.prng_vector :
+            print( '\n', element )
+            element.dump_state()
+
+
+    def encrypt( self, plain_text, steps ) :
+        """
+        Encrypts a message string and returns the encrypted string.
+        This only handles text, other data needs serialized.
+
+        Plain text can be a short string or a file read.  Those are
+        ascii and [], there may be other special cases for later.
+        """
+        assert isinstance( plain_text, type( 'a' ) ) or \
+               isinstance( plain_text, type( [] ) )
+        
+        cipher_text = ''
+        if isinstance( plain_text, type( 'a' ) ) :
+            for plain_byte in plain_text :
+                rand_byte = self.next( 8, steps )
+#                print( "encode rand_byte = ", hex( rand_byte ) )
+                cipher_text += chr( rand_byte ^ ord( plain_byte ) )
+#                cipher_text += chr( ( rand_byte ^ ord( plain_byte ) )
+#                & 0xFF )
+        elif isinstance( plain_text, type( [] ) ) :
+            for plain_line in plain_text :
+                for plain_byte in plain_line :
+                    assert isinstance( plain_byte, type( 'a' ) )
+                    cipher_text += chr( ( ord( self.next( 8, steps ) ) ^ \
+                                          ord( plain_byte ) ) & 0xFF )
+
+        return cipher_text
+
+    def decrypt( self, cipher_text, steps ) :
+        """
+        decrypts a message string and returns the encrypted string.
+        """
+
+        plain_text = ''
+        if isinstance( cipher_text, type( 'a' ) ) :
+            for ciph_byte in cipher_text :
+                rand_byte = self.next( 8, steps )
+#                print( "decode rand_byte = ", hex( rand_byte ) )
+
+                plain_text += chr( rand_byte ^ ord( ciph_byte ) )
+
+        if isinstance( plain_text, type( [] ) ) :
+            for ciph_line in cipher_text :
+                for ciph_byte in ciph_line :
+                    assert isinstance( ciph_byte,  type( 'a' ) )
+                    plain_text += chr( ( ord( self.next( 8, steps ) ) ^ \
+                                         ord( ciph_byte ) ) & 0xFF )
+        
+        return plain_text
+
 
 class LcgCrypto() :
     """

@@ -648,7 +648,12 @@ class RNT() :
     def bit_string_from_randoms( self, rnt_bit_index, field_width ) :
         """
         returns the consecutive field_width bits beginning with rnt_bit_index
-        from the RNT represented as 4K / 64 bit numbers
+        from the 4KB RNT represented as 64 bit numbers, treated by this
+        function as one long string of bits.
+
+        In fact, it is important to have some extra words because I
+        don't check bounds in any of the accesses, they can run over the
+        end of the 4KB. So I think I add 32 words, way more than enough.
         """
         if isinstance( self.rnt, type( None ) ) :
             print_stacktrace_exit( " self.rnt is NoneType", self.rnt )
@@ -880,7 +885,7 @@ class RNT() :
 
             # get the integer
             the_integer = self.bit_string_from_randoms( rnt_bit_index,
-                                                        integer_width)
+                                                        integer_width )
             # one of many masking possibilities, another list of functions
             entropy_bits   += the_integer
             self.hash.update( entropy_bits )
