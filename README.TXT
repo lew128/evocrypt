@@ -1,3 +1,31 @@
+WARNING!!!!
+
+The way the world works is that millions of people have bright ideas
+every year.  100s of 1000s of those people pursue their ideas far enough
+to assess them, a small fraction turn out to be good ideas, they
+believe.
+
+Of those, a very small fraction make it into the general meme pool,
+meaning they have been evaluated by enough minds to be provisional
+truth.
+
+But that only happens after a long period of serious people looking at
+the problem.
+
+That is progress, there is no avoiding the awkward phase where one
+obsessed mind is convinced his or her idea is brilliant beyond belief,
+but no one serious has evaluated it.
+
+This is an idea in that awkward period. All this makes sense to me, and
+seems an obvious and simple straight-forward argument, once thought of.
+I would entrust my secrets to this cipher system, if I had any.
+
+But you can't take the obsessed inventor's word for anything, you have to
+evaluate early-stage ideas for yourself, or get your smarter friends to
+do it.
+
+END WARNING
+
 Modern crypto is based on assumptions that favor large, well-funded
 groups such as NSA. Snowden gave their game away telling Poitras “Assume
 your adversary is capable of checking one trillion passwords per second 
@@ -36,7 +64,7 @@ Thus, the major crypto mechanisms are unbreakable, e.g. AES with its
 256-bit key space and 14 cycles of mixing key and plaintext. But, NSA
 likes that unbreakable cypher, because it fixes in place the use of both
 standards and passwords. Small-logic standards mean testing passwords
-against files can be accelerated and automaed. Passwords are a product
+against files can be accelerated and automated. Passwords are a product
 of human minds and culture, and those have many regularities, so are
 much easier to attack than the unbreakable cypher.
 

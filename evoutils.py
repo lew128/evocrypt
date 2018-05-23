@@ -131,6 +131,8 @@ def print_stacktrace_exit( message, variable ) :
     debug( message, variable, 0 )
     sys.exit( 0 )
 
+#SINGLE_PROGRAM_TO_HERE
+
 def usage() :
     """
     This provides 'help' and other usage information.
@@ -146,7 +148,6 @@ def usage() :
     print( usage_info )
 
 
-#SINGLE_PROGRAM_TO_HERE
 
 #
 # main begins here, generally test code for the module.

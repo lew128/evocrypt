@@ -1,30 +1,30 @@
 #!/bin/bash
-# this runs evocrypt to extract a single-file program, 'lew.py'
-# lew.py is used to generate a next-generation, 'fred0x*.py'
-# fred0x*.py is used to encrypt and decrypt a program.
+# this runs evocrypt to extract a single-file program, 'evo_new0.py'
+# evo_new0.py is used to generate a next-generation, 'evo_new10x*.py'
+# evo_new10x*.py is used to encrypt and decrypt a program.
 
-rm lew*.py lew.stderr lew.stdout
+rm evo_new0*.py evo_new0.stderr evo_new0.stdout
 
-./evocrypt.py --password amberalertness --assemble lew.py > lew.stdout 2> lew.stderr
+./evocrypt.py --password amberalertness --assemble evo_new0.py > evo_new0.stdout 2> evo_new0.stderr
 
-chmod +x lew*.py
+chmod +x evo_new0*.py
 
-if [ ! -f lew*.py ]; then
-    echo "lew*.py not found!"
+if [ ! -f evo_new0*.py ]; then
+    echo "evo_new0*.py not found!"
     exit 0
 fi
 
-rm fred*.py fred*.stderr fred*.stdout
-./lew*.py --password amberalert --new fred > fred.stdout 2> fred.stderr
+rm evo_new1*.py evo_new1*.stderr evo_new1*.stdout
+./evo_new0*.py --password amberalert --new evo_new1 > evo_new1.stdout 2> evo_new1.stderr
 
 
-if [ ! -f fred*.py ]; then
-    echo "fred*.py not found!"
+if [ ! -f evo_new1*.py ]; then
+    echo "evo_new1*.py not found!"
     exit 0
 fi
-chmod +x fred*.py
+chmod +x evo_new1*.py
 
-./fred*.py --password umberalertness --encrypt test_file.txt > fenc.stdout 2> fenc.stderr
+./evo_new1*.py --password umberalertness --encrypt test_file.txt > evo_new1_encrypt.stdout 2> evo_new1_encrypt.stderr
 
-./fred*.py --password umberalertness --decrypt test_file.txt*.evocrypt > fdec.stdout 2> fdec.stderr
+./evo_new1*.py --password umberalertness --decrypt test_file.txt*.evocrypt > evo_new1_decrypt.stdout 2> evo_new1_decrypt.stderr
 
