@@ -211,14 +211,14 @@ if __name__ == "__main__" :
                            }
     EVOCRYPT_GROUPS     = { 
                             'fold'     : [ 'xor0', 'xor1', 'xadd0', 'xadd1' ],
-                            'hash'     : [ 'hash0', 'hash1' ],
+                            'hash'     : [ 'hash0', 'hash1', 'next' ],
                             'rtn'      : [ 'wichman', 'randint', 'randint1',
                                            'randint2', 'next_random_value' ],
                             'prime'    : [],
                             'prng'     : [ 'lcg', 'well512', 'newlib', 'knuth',
                                            'lp5', 'lp256', 'cmwc4096', 'lfsr' ],
-                            'cprng'    : [ 'hash_crypto', 'encode0',
-                                           'encode1', 'encode2'],
+                            'cprng'    : [ 'lcg_crypto', 'prng_crypto',
+                                           'hash_crypto', 'encode2'],
                             'utils'    : [],
                             'evocrypt' : [],
                            }

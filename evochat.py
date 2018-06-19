@@ -11,19 +11,24 @@ import time
 import datetime
 import socket
 import select
-from evoprngs import LcgCrypto
 import threading
 import queue
 import signal
 import curses
 import traceback
-import curses
 import getopt
-from evornt import RNT
+import binascii
+import struct
+import random
+import evoutils
+from evocprngs import CRYPTO
+from evornt    import RNT
+from evoutils  import VERBOSITY_LEVEL, DEBUG_FD, debug, close_files_and_exit, \
+                     print_stacktrace, print_stacktrace_exit
 
 
 
-__version__   = "0.2"
+__version__   = "0.3"
 __revision__  = "$$"
 __date__      = "2014-02-08"
 __author__    = "nobody@nowhere.com"
@@ -43,6 +48,9 @@ __history__   = """
                      added datetime string to passphrase to init prng
                      added different send/recv prngs
           all those worked the first time.
+    0.3 - 20180605 Converted to Python3, upgraded to use the new
+          evocrypt functions. Major PITA, probably should have
+          understood P3 better before beginning.
     """
 
 class TCP() :
@@ -72,27 +80,26 @@ class TCP() :
         if client_or_server in [ 'client', 'Client' ] :
 
             try :
-                self.socket = socket.socket( socket.AF_INET,
-                                             socket.SOCK_STREAM )
+                self.socket = socket.socket( socket.AF_INET, socket.SOCK_STREAM)
 
-            except socket.error as e :
-                errno, strerror = e.args
+            except socket.error as the_error :
+                errno, strerror = the_error.args
                 sys.stderr.write( "socket [ERROR] %s\n" % strerror )
                 sys.exit( 2 )
 
-            except socket.herror as e :
-                errno, strerror = e.args
+            except socket.herror as the_error :
+                errno, strerror = the_error.args
                 sys.stderr.write( "socket h address [ERROR] %s\n" % strerror )
                 sys.exit( 2 )
 
-            except socket.gaierror as e :
-                errno, strerror = e.args
+            except socket.gaierror as the_error :
+                errno, strerror = the_error.args
                 sys.stderr.write( "socket g address [ERROR] %s\n" %
                 strerror )
                 sys.exit( 2 )
 
-            except socket.timeout as e :
-                errno, strerror = e.args
+            except socket.timeout as the_error :
+                errno, strerror = the_error.args
                 sys.stderr.write( "socket timeout [ERROR] %s\n" %
                 strerror )
                 sys.exit( 2 )
@@ -102,40 +109,41 @@ class TCP() :
             try :
                 self.socket.connect( ( self.address, self.port ) )
 
-            except socket.error as e :
+            except socket.error as the_error :
+                errno, strerror = the_error.args
                 sys.stderr.write("[ERROR] %s\n" % strerror )
                 sys.exit(2)
 
         elif client_or_server in [ 'server', 'Server' ] :
             try :
-                self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM )
+                self.socket = socket.socket( socket.AF_INET, socket.SOCK_STREAM)
 
-            except socket.error as e :
-                errno, strerror = e.args
+            except socket.error as the_error :
+                errno, strerror = the_error.args
                 sys.stderr.write( "socket [ERROR] %s\n" % strerror )
                 sys.exit( 2 )
 
             try :
                 self.socket.bind( ( self.address, self.port ) )
 
-            except socket.error as e :
-                errno, strerror = e.args
+            except socket.error as the_error :
+                errno, strerror = the_error.args
                 sys.stderr.write( "socket [ERROR] %s\n" % strerror )
                 sys.exit( 2 )
 
             try :
                 self.socket.listen( self.max_pdu )
 
-            except socket.error as e :
-                errno, strerror = e.args
+            except socket.error as the_error :
+                errno, strerror = the_error.args
                 sys.stderr.write( "socket [ERROR] %s\n" % strerror )
                 sys.exit( 2 )
 
             try :
                 self.connection, self.connecting_address = self.socket.accept()
 
-            except socket.error as e :
-                errno, strerror = e.args
+            except socket.error as the_error :
+                errno, strerror = the_error.args
                 sys.stderr.write( "socket [ERROR] %s\n" % strerror )
                 sys.exit( 2 )
 
@@ -159,7 +167,7 @@ class TCP() :
         """
         sends data.
         """
-        self.socket.send( bytes( data, 'UTF-8' ) )
+        self.socket.send( data )
 
 
     def select( self, tcp_list ) :
@@ -185,10 +193,10 @@ class TCP() :
             ready_to_read, ready_to_write, in_error = \
                 select.select( socket_list, [], [], 0 )
 
-        except select.error as e :
-            errno, strerror = e.args
+        except select.error as the_error :
+            errno, strerror = the_error.args
             print( "select.error", select.error )
-            print( "select.args", args )
+            print( "select.args", the_error.args )
 
         if in_error :
             print( "in_error" )
@@ -199,85 +207,59 @@ class TCPThread( threading.Thread ) :
     """
     Sets up threads, the queues back to main and the PRNGs used for
     encoding sends and decoding recvs.
-
-    Making the prng settable by init would be useful, easiest would
-    be to pass in the initialized prngs in both direction, would not
-    need the passphrase.
     """
 
     def __init__( self, passphrase, max_pdu, client_or_server,
-                  server_ip_addr ) :
+                  server_ip_addr, system_type ) :
 
         self.queue_to_main   = queue.Queue()
         self.queue_from_main = queue.Queue()
 
+        assert len( passphrase ) > 0, "you must supply a passphrase"
+        assert client_or_server in [ 'Client', 'CLIENT', 'client' ] or \
+               client_or_server in [ 'Server', 'SERVER', 'server' ], \
+               "You must specify 'client' or 'server'"
         #
         # Don't want to reuse a passphrase as the opponent can decipher
-        # the two streams if that happens.  So add the datetime string.
-        # That means both ends of the link have to start in the same
-        # UTC minute.  IF they don't the link fails because the initial
-        # messages won't compare correctly.
-        #
-        # This doesn't add security wrt guessing the passphrase, as it
-        # is both deterministic and can be inferred by the opponent from
-        # timestamps on the TCP messages, but it prevents the simple 
-        # attack.
-        
-        now = datetime.datetime.utcnow()
-        passphrase = passphrase + now.strftime( '%d%m%Y%%H%M' ) 
+        # the two streams if that happens. So client and server exchange
+        # random numbers, eash side using its own number added to the
+        # passphrase for sending.
 
-        #
-        # Don't want to use the same prng in both directions, that would
-        # allow deciphering them.
-        #
+        # Paranoia level should determine how many times the key was
+        # changed, or added to, by exchanges of random numbers, each
+        # time changing the RNT and the crypto, but that is for later.
 
-        # setup for the calls to crypto, need these parameters
-        send_rnt           = RNT( 4096, 2 )
-        recv_rnt           = RNT( 4096, 2 )
+        self.begin_time        = datetime.datetime.utcnow()
 
-        send_rnt.hash_password( passphrase + 'send' )
-        recv_rnt.hash_password( passphrase + 'recv' )
-
-        # ( entropy_bits, the_rnt, n_prngs, prng_bit_width, lcg_depth )
-
-        if client_or_server in [ 'Client', 'CLIENT', 'client' ] :
-            self.send_prng       = LcgCrypto(
-                                send_rnt.password_hash, send_rnt, 5, 128, 11 )
-            self.recv_prng       = LcgCrypto( 
-                                recv_rnt.password_hash, recv_rnt, 5, 128, 11 )
-
-        elif client_or_server in [ 'Server', 'SERVER', 'server' ] :
-            self.send_prng       = LcgCrypto( 
-                                send_rnt.password_hash, send_rnt, 5, 128, 11 )
-            self.recv_prng       = LcgCrypto(
-                                recv_rnt.password_hash, recv_rnt, 5, 128, 11 )
-        else :
-            print("Sorry, don't understand '" + client_or_server + "'" )
-            sys.exit( 0 )
-
-        self.server_ip_addr  = server_ip_addr
-        self.max_pdu         = max_pdu
-        self.tcp_server      = None
-        self.connection      = None
-        self.tcp_client      = None
-        self.tcp_connection  = None
-        self.event           = threading.Event()
+        self.passphrase       = passphrase
+        self.system_type      = system_type
+        self.server_ip_addr   = server_ip_addr
+        self.max_pdu          = max_pdu
+        self.tcp_server       = None
+        self.connection       = None
+        self.tcp_client       = None
+        self.tcp_connection   = None
+        self.event            = threading.Event()
         self.client_or_server = client_or_server
         
+        self.send_crypto      = None
+        self.recv_crypto      = None
+
         self.client_initial_message = 'initial message from client'
         self.server_initial_message = 'initial message from server'
+
         try :
             self.log_fd = open( CLIENT_OR_SERVER + '_THREAD.log', 'w' )
 
         except :
-            errno, strerror = e.args
+            errno, strerror = the_error.args
             print( " error '" + str( errno ) + "'" )
+            print( " error '" + strerror + "'" )
             sys.exit( -2 )
 
         threading.Thread.__init__( self )
         self.setDaemon( True )
         
-
 
     def run( self ) :
         """
@@ -285,7 +267,7 @@ class TCPThread( threading.Thread ) :
         """
         # end the thread when the parent exits.
 
-        if self.client_or_server in [ 'client', 'Client' ] :
+        if   self.client_or_server in [ 'client', 'Client' ] :
             self.run_client()
 
         elif self.client_or_server in [ 'server', 'Server' ] :
@@ -308,16 +290,40 @@ class TCPThread( threading.Thread ) :
         #
         self.tcp_client = TCP( self.server_ip_addr, 5336, self.max_pdu )
         self.tcp_client.connect( 'Client' )
+#        self.connection = self.tcp_client.connection
 
         #
         # Send a standard message to server and also receive one.
         #
-        self.tcp_client.send( self.client_initial_message )
+        self.tcp_client.send( self.client_initial_message.encode( 'utf-8' ) )
         plain_text = self.tcp_client.recv( self.max_pdu )
-        if plain_text not in self.server_initial_message :
+        sys.stdout.write( "'" + plain_text.decode( 'utf-8' )  + "'\n" )
+        if plain_text.decode( 'utf-8' ) not in self.server_initial_message :
             self.log_fd.write( "message received from server is wrong = '" + \
-                                plain_text + "'" )
+                                str( plain_text ) + "'" )
             sys.exit( -1 )
+
+        #
+        # Send a random number to server and also receive one from server
+        #
+        random.seed()
+        client_random_number = random.getrandbits( 64 )
+        self.tcp_client.send( struct.pack( "@Q", client_random_number ) )
+
+        server_random_number = struct.unpack( "@Q",
+                               self.tcp_client.recv( self.max_pdu ) )[ 0 ]
+
+        #
+        # Use the random number to make the password unique, avoiding
+        # the big danger of XOR ciphers.
+        #
+        client_passphrase = self.passphrase + hex( client_random_number )
+        server_passphrase = self.passphrase + hex( server_random_number )
+
+        send_cryptos = CRYPTO( server_passphrase, self.system_type, 1 )
+        recv_cryptos = CRYPTO( client_passphrase, self.system_type, 1 )
+        self.send_crypto  = send_cryptos.next()
+        self.recv_crypto  = recv_cryptos.next()
 
         #
         # use the event to stop the thread.
@@ -330,6 +336,7 @@ class TCPThread( threading.Thread ) :
         while True :
             if not self.queue_from_main.empty() :
                 queue_msg = self.queue_from_main.get()
+                self.log_fd.flush()
                 self.tcp_client.send( queue_msg )
 
             #
@@ -340,6 +347,7 @@ class TCPThread( threading.Thread ) :
 
             if ready_to_read :
                 recv_msg = self.tcp_client.recv( self.max_pdu )
+                self.log_fd.flush()
                 self.queue_to_main.put( recv_msg )
 
             else :
@@ -364,13 +372,36 @@ class TCPThread( threading.Thread ) :
         #
         # Send a standard message to client and also receive one.
         #
-        plain_text = self.connection.send(
-            bytes( self.server_initial_message, 'UTF-8' ) )
+        self.connection.send( self.server_initial_message.encode( 'UTF-8' ) )
 
         plain_text = self.connection.recv( self.max_pdu )
-        if plain_text not in self.client_initial_message :
-            print( "message received from client is wrong", plain_text )
+        sys.stdout.write( "'" + plain_text.decode( 'UTF-8' )  + "'\n" )
+        if plain_text.decode( 'utf-8' ) not in self.client_initial_message :
+            print( "message received from client is wrong : '" +
+                   plain_text.decode( 'utf-8' ) + "'\n" ) 
             sys.exit( -1 )
+
+        #
+        # Send a random number to server and also receive one from server
+        #
+        random.seed()
+        server_random_number = random.getrandbits( 64 )
+        self.connection.send( struct.pack( "@Q", server_random_number ) )
+
+        client_random_number = struct.unpack( "@Q",
+                               self.connection.recv( self.max_pdu ) )[ 0 ]
+
+        #
+        # Use the random number to make the password unique, avoiding
+        # the big danger of XOR ciphers.
+        #
+        client_passphrase = self.passphrase + hex( client_random_number )
+        server_passphrase = self.passphrase + hex( server_random_number )
+
+        send_cryptos = CRYPTO( client_passphrase, self.system_type, 1 )
+        recv_cryptos = CRYPTO( server_passphrase, self.system_type, 1 )
+        self.send_crypto  = send_cryptos.next()
+        self.recv_crypto  = recv_cryptos.next()
 
         #
         # use the event to stop the thread.
@@ -383,7 +414,7 @@ class TCPThread( threading.Thread ) :
         while True :
             if not self.queue_from_main.empty() :
                 queue_msg = self.queue_from_main.get()
-
+                self.log_fd.flush()
                 self.connection.send( queue_msg )
 
             #
@@ -394,6 +425,7 @@ class TCPThread( threading.Thread ) :
 
             if ready_to_read :
                 recv_msg = self.connection.recv( self.max_pdu )
+                self.log_fd.flush()
                 self.queue_to_main.put( recv_msg )
 
             else :
@@ -439,7 +471,10 @@ def signal_handler( signum, frame ):
     sys.exit( 0 )       # final exit
     if signum == signal.SIGINT  or signum == signal.SIGQUIT or \
        signum == signal.SIGABRT or signum == signal.SIGTERM :
+
 #        log( "Signal to end the program and all dependent processes" )
+        close_files_and_exit( None, None )
+
         print( "\n\n!!! Trying hard to exit!!! \n\n" )
         sys.exit( 0 )       # final exit
 
@@ -644,12 +679,12 @@ def usage() :
 #
 # main begins here
 #
+
 if __name__ == "__main__" :
-    global LOG_FD
-    LOG_FD = None
 
     SHORT_ARGS = "h"
-    LONG_ARGS  = [  'help' , 'client', 'server', 'test=' ]
+    LONG_ARGS  = [  'help' , 'client', 'server', 'password=',
+                    'ip_address=', 'system=', 'test=' ]
 
     print( __filename__ )
     print( __version__ )
@@ -657,13 +692,16 @@ if __name__ == "__main__" :
 
     TEST_LIST         = []      # list of tests to execute
     CLIENT_OR_SERVER  = None
+    SERVER_IP_ADDR    = None
+    PASSPHRASE        = None
+    SYSTEM_TYPE       = None
 
     try :
         OPTS, ARGS = getopt.getopt( sys.argv[ 1 : ], SHORT_ARGS, LONG_ARGS )
 
-    except getopt.GetoptError as MSG :
-#        errno, strerror = ERROR.args
-        print( "getopt.GetoptError = '" + MSG + "'" )
+    except getopt.GetoptError as the_error :
+        errno, strerror = the_error.args
+        print( "getopt.GetoptError = '" + str( the_error ) + "'" )
         sys.exit( -2 )
 
     for o, a in OPTS :
@@ -677,6 +715,15 @@ if __name__ == "__main__" :
 
         if o in ( "--server" ) :
             CLIENT_OR_SERVER = 'Server'
+
+        if o in ( "--system" ) :
+            SYSTEM_TYPE = a
+
+        if o in ( "--password" ) :
+            PASSPHRASE = a
+
+        if o in ( "--ip_address" ) :
+            SERVER_IP_ADDR = a
 
         if o in ( "--test" ) :
             TEST_LIST.append( a )
@@ -695,15 +742,15 @@ if __name__ == "__main__" :
         #
         # get the passphrase.  Don't echo, do it twice, compare, etc.
         #
-        PASSPHRASE = get_passphrase( SCREEN )
+        if not PASSPHRASE :
+            PASSPHRASE = get_passphrase( SCREEN )
     
         #
         # get the Server, if the client
         #
-        SERVER_IP_ADDR = None
+        if not SERVER_IP_ADDR :
 #        if CLIENT_OR_SERVER in [ 'Client', 'CLIENT', 'client' ] :
-        SERVER_IP_ADDR = get_server_ip_address( SCREEN )
-        print( "Server IP : ", SERVER_IP_ADDR )
+            SERVER_IP_ADDR = get_server_ip_address( SCREEN )
         
         #
         # Set the signal handler for killing the program
@@ -715,28 +762,38 @@ if __name__ == "__main__" :
         signal.signal( signal.SIGABRT , signal_handler )
     
         #
-        # Spin off the thread
+        # Spin off the thread to handle encryption and ip comms
         #
         TCP_THREAD = TCPThread( PASSPHRASE, 1500, CLIENT_OR_SERVER,
-                                SERVER_IP_ADDR )
+                                SERVER_IP_ADDR, SYSTEM_TYPE )
         TCP_THREAD.start()
     #    sys.exit( 0 )
     
         #
-        # This is main, just in case you need reminded
+        # This is main(), just in case you need reminded
         #
         time.sleep( 1 )
     
         try :
             LOG_FD = open( CLIENT_OR_SERVER + '.log', 'w' )
     
-        except :
-            errno, strerror = e.args
+        except IOError as the_error :
+            errno, strerror = the_error.args
             print( " error '" + strerror + "'" )
             sys.exit( -2 )
-    
-#        pdb.set_trace()
-    
+
+        try : 
+            evoutils.DEBUG_FD = open( CLIENT_OR_SERVER + '_debug.log', 'w' )
+
+        except IOError as the_error :
+            errno, strerror = the_error.args
+            print( " error '" + strerror + "'" )
+            sys.exit( -2 )
+
+        evoutils.DEBUG_FD.write( str( evoutils.DEBUG_FD ) + " " + str( LOG_FD ))
+        evoutils.DEBUG_FD.flush()
+        LOG_FD.write(   str( evoutils.DEBUG_FD ) + " " + str( LOG_FD ) )
+
         LOG_FD.write( "thread count = " + str( threading.activeCount()) + '\n' )
     
         SENT_STRINGS = []
@@ -745,8 +802,8 @@ if __name__ == "__main__" :
         while True :
             if not TCP_THREAD.queue_to_main.empty() :
                 CYPHER_TEXT = TCP_THREAD.queue_to_main.get()
-                PLAIN_TEXT  = TCP_THREAD.recv_prng.decrypt( CYPHER_TEXT )
-                LOG_FD.write(  "received plain_text = '" + PLAIN_TEXT + "'" )
+                PLAIN_TEXT  = TCP_THREAD.recv_crypto.decrypt( CYPHER_TEXT, 1 )
+                LOG_FD.flush()
     
                 #
                 # truncate the input list and append the new string.
@@ -762,11 +819,9 @@ if __name__ == "__main__" :
             if INPUT_READY :
                 PLAIN_TEXT  = collect_text( SCREEN, SENT_STRINGS,
                                                     RCVD_STRINGS, True )
-                LOG_FD.write(  "input plain_text = '" + PLAIN_TEXT + '\n' )
-
                 if PLAIN_TEXT in [ 'QUIT', 'Quit', 'quit',
                                    'EXIT', 'Exit', 'exit' ] :
-                    LOG_FD.write(  "Quitting = '" + PLAIN_TEXT + '\n' )
+                    LOG_FD.write(  "Quitting = '" + str( PLAIN_TEXT ) + '\n' )
                     print ("Quitting" )
                     TCP_THREAD.event.set()
 
@@ -779,15 +834,16 @@ if __name__ == "__main__" :
 
                     sys.exit( 0 )
 
-                CYPHER_TEXT = TCP_THREAD.send_prng.encrypt( PLAIN_TEXT, 1 )
+                CYPHER_TEXT = TCP_THREAD.send_crypto.encrypt( PLAIN_TEXT, 1 )
                 TCP_THREAD.queue_from_main.put( CYPHER_TEXT )
             else :
                 TCP_THREAD.event.wait( 1 )
 
 
     if 'threads' in TEST_LIST :
-        SERVER_THREAD = TCPThread()                               
-        CLIENT_THREAD = TCPThread()                               
+        MAX_PDU = 1500
+        SERVER_THREAD = TCPThread( PASSPHRASE, MAX_PDU, 'server',
+                                   SERVER_IP_ADDR, SYSTEM_TYPE )
+        CLIENT_THREAD = TCPThread( PASSPHRASE, MAX_PDU, 'client',
+                                   SERVER_IP_ADDR, SYSTEM_TYPE )
 
-#    if 'encode' in TEST_LIST :
-        

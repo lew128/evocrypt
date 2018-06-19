@@ -96,13 +96,29 @@ be known to know the other. If the PRNG can't be predicted, and also
 produces a random-enough stream of bits, that is equivalent to a one-time
 pad, provably unbreakable from information theory.
 
+There are 2 major reasons NOT to use PRNGS. First is the impressive
+ability of cryptoanalysts to discern the mechanism producing the PRNG
+stream, displayed with the very first such use in a military cipher,
+thought to be a major intellectual achievement by Bill Tutte :
+https://www.youtube.com/watch?v=VnzjPmNDom4 
+
+Second, re-using a key and the PRNG stream it produces may provide
+the information needed to unravel the entire cipher system, tho the
+German example had some obvious security problems built-in.
+
+This is such a PRNG-XOR cipher, and depends on producing a PRNG that is
+immune to such attacks. It is immune, I argue, because there are so many
+alternative opacity-producing operations in a stack, behind which lies
+a very large integer state. 
+
 There are many possible crypto-quality PRNGs, many possible ordinary
 PRNGs that could compose the crypto-quality PRNGs, and many different
 hashes that can be used to initialize them and convert a password to an
 index selecting one of those functions from a list. They can be
 initialized in many different ways, the class init() function for each
 will use a member of the list of hashes, again dependent upon the
-password.
+password. Finally, a too-long PRNG is folded with one of N fold
+mechansims, another opacity obscuring the underlying mechanisms.
 
 The cryptographic PRNGs I provide choose N separate ordinary PRNGs using
 a variety of algorithms. They use one to choose bits of the others to make
@@ -118,8 +134,8 @@ different set of operations for encryption-decryption when using the
 same password.
 
 New versions of the program change the random data and the ordering of
-the list of crypto-quality PRNGs, the list of ordinary PRNGs and the
-list of hashes.
+the list of crypto-quality PRNGs, the list of ordinary PRNGs, the
+list of hashes and the list of folds.
 
 Each new version of the program is identified by the hash value of its
 text appended to the name.  Each program can only communicate with
@@ -135,14 +151,14 @@ entirely different encryptions of a standard plain text.  Thus, the
 program is as important as the password.
 
 Each program is unique because of 4096 random byte values in a constant
-array and because lists of crypto-quality PRNG functions, lists of
-ordinary PRNG functions and lists of hash functions are different in
+array and because lists of crypto-quality PRNG functions, ordinary PRNG
+functions, hash functions and fold functions are different in
 newly-generated programs, based on the password used to generate the
 program.  That deterministically makes identical programs on each side,
 but different than any prior program would have produced for the same
-password. It is infeasible to use a current program to obtain previous
-programs, even if the password used to generate one is known, perfect
-forward secrecy.
+password. It is computationally infeasible to use a current program
+to obtain previous programs, even if the password used to generate one
+is known, perfect forward secrecy.
 
 Every security-sensitive program must be part of a deeply layered
 defense.  I put in some of the checks I think are standard, e.g. encoded
@@ -151,11 +167,11 @@ permissions, ... there must be many more.  The program refuses to run if
 anything is awry.  Better no communications than compromised
 communications.
 
-The program is attached below, there are many more comments in the code.
-Most important, this is a proof of concept, and I am no programmer of
-secure systems.  My testing has been light. Practical programming for
-secure applications is a big area, and I don't have time to learn all
-that, so I wouldn't trust this for anything serious yet.
+The program is on github, named 'evocrypt'. There are many more comments
+in the code. Most important, this is a proof of concept, and I am no
+programmer of secure systems.  My testing has been light. Practical
+programming for secure applications is a big area, and I don't have time
+to learn all that, so I wouldn't trust this for anything serious yet.
 
 So the implementation can be critiqued, but I believe the concepts
 behind the implementation are solid.
@@ -164,18 +180,18 @@ I would love to have someone(s) to take this idea and make a serious
 open source project from it. The code is not copyrighted, do with it as
 you will.
 
-*My lawyer said I can't plagarize myself, so you need to read the
-original articles for that bit of reasoning, here and here.
-
-Also, probably every programmer who gets interest in cryptology has a
+-----------
+Probably every programmer who gets interest in cryptology has a
 great idea for a crypto system, and most are bunk.  I can't be sure mine
-is not bunk, as I am not a cryptologist. However, I am enough of a
+is not bunk, as I am not a cryptologist. Historically, cryptologists
+can't tell either, their ciphers are broken. However, I am enough of a
 computer scientist and software engineer to understand the basics, and
 this is solid computer science and information theory.
 
 I predict the professionals won't like this, because it puts producing
 neat versions of crypto codes back into mere programmer's hands and
-secrecy back into all of our affairs.
+secrecy back into all of our affairs. It is slow, large and cannot be
+proven to be correct with mathematical tools as are most modern codes.
 
 To be sure, this approach has downsides, e.g. versions as part of
 programs will be an operational problem, so password managers, etc. need
@@ -187,16 +203,14 @@ that NSA would have or like, reasoning from the available evidence. Just
 to remind you, an implication of Snowden's comment is that NSA breaks
 the unbreakable codes, routinely. Did that happen by accident?
 
-***OK, a new version, so I am not plagiarizing myself.
-
-1 trillion is a BIG number, 10,000 variants of each of the 2 million words
+***1 trillion is a BIG number, 10,000 variants of each of the 2 million words
 and names and well-known scraps of poetry for 50 languages. AES and other
 algorithms are designed to be computationally complex, and so slow. A
 fast processor maybe could do a few 10s of thousand of passwords per
 second against a single file, so 1T would require millions of processor
 cores, not economically feasible. NSA must reach that level of attempts
 per second by using Application Specific Integrated Circuits which use
-pipelines of the 14 layers of AES's mixing to obtain parallelism, each
+pipelines of the 10-14 layers of AES's mixing to obtain parallelism, each
 calculation may be stepping through hundreds of stages in the pipeline,
 one after another.
 
@@ -204,8 +218,8 @@ I think it unlikely there are more than a few 10s of billions of
 passwords that have ever been used on the net, what with redundancies,
 so a few percent of 1T. That allows more files to be checked per day.
 The physical implementation is likely that these ASICS show up in the
-memory space,  the control software only has to write into consecutive
-words to begin the hardware's processing. The parameters would be the
+memory space,  the control software only has to write pointers into a
+queue to begin the hardware's processing. The parameters would be the
 address of the message, an index into the language statistics needed to
 check deciding whether the password worked or not, the length of the
 message to process, and the hash of the password. ASICs can include
@@ -220,9 +234,8 @@ the message snippets, or run through a neural net that computes a 'yes',
 'no' or 'maybe' for the file.
 
 An ASIC could clock at 1 GHz.  Assuming 10,000 clocks per file, a single
-ASIC could process 100,000 files per second. A single unit could process
-multiples of a 1000 files per minute. Handling more files merely means
-more hardware and network bandwidth, normal scaling, so this design
+ASIC could process 100,000 files per second. Handling more files merely
+means more hardware and network bandwidth, normal scaling, so this design
 easily keeps ahead of the world's encrypted traffic.
 
 Add computers deciding what encrypted files are passed to which of the
@@ -240,35 +253,33 @@ There must be a proof of the difficulty of determining the prng
 sequence being proportional, at least, to the number of bits
 of entropy multiplied by the number of operations producing entropy.
 
-Empiricially, my simple PRNGs pass dieharder, of course the
-crypto-quality PRNGs must have exponentially longer cycles,
-exponential in the number of simpler PRNGs that compose them.
-thus determing the sequence must be very, very much harder
-than the difficulty of computing it.  Another of the things
-not discussed in the crypto literature, at least not the
-relatively simple stuff I have read, and there is no sign
-of such thought in crypto code that I have seen discussed.
+Empiricially, my simple PRNGs pass dieharder, of course the crypto-quality
+PRNGs must have exponentially longer cycles, exponential in the number of
+simpler PRNGs that compose them.  thus determing the sequence must be very,
+very much harder than the difficulty of computing it.  Another of the things
+not discussed in the crypto literature, at least not the relatively simple
+stuff I have read, and there is no sign of such thought in crypto code that
+I have seen discussed.
 
-Consider the idea of giving a code breaker the program, the
-Encyclopedia Britannica ( electronic version) and that file
-encrypted with that program.  The task is to find the
- password.
+Consider the idea of giving a code breaker the program, the Encyclopedia
+Britannica (electronic version) and that file encrypted with that program.
+The task is to find the password.
 
-I believe that is doable with AES and the other
-simple-mechanisms, but not with anyrhing more complex. This is
-a result of far more mixing of the entropy in the individual
-program with the password before applying that randomness to a
-cipher mechanism, which mechanism is guaranteed secure.
+I believe that is doable with AES and the other simple-mechanisms, but not
+with anyrhing more complex. This is a result of far more mixing of the
+entropy in the individual program with the password before applying that
+randomness to a cipher mechanism, which mechanism is guaranteed secure.
 
-If you make something regular, you make it breakable, given
-some level of tech.  NSA standards have made things regular. Clearly
-NSA have developed the tech to compute AES fast enough to make
-password attacks feasible.  Irregular is good in crypto.
+If you make something regular, you make it breakable, given some level of
+tech.  NSA standards have made things regular. Clearly NSA have developed
+the tech to compute AES fast enough to make password attacks feasible. 
+Irregular is good in crypto, it seems to me, tho I don't see that
+thought in the crypto literature I have read.
 
 ------
 
-Do I think this is breakable? Maybe, but only with considerable
-effort and needing very large amounts of traffic.
+Do I think this is breakable? Maybe, but only with considerable effort and
+needing very large amounts of traffic.
 
 Individual elements mostly pass Dieharder, at worst 5 'weak' out of >100
 tests. The combination of the elements do better, 100 tests pass.
@@ -283,8 +294,8 @@ It is important to state that the implementation here is NOT 'security
 by obscurity'. It is security by cryptographic quality PRNGs + XOR,
 known to be unbreakable.
 
-The overly-elaborate and very slow mechanisms entirely prevent, I believe, any
-password attacks because that is computationally infeasible. The
+The overly-elaborate and very slow mechanisms entirely prevent, I believe,
+any password attacks because that is computationally infeasible. The
 mechanism is not a simple one that can be unrolled into a hardware
 pipeline, so no ASIC speedup is possible.
 
@@ -337,7 +348,7 @@ Given enough different PRNGs and hashes to mask the original signal, I
 can then dilute that cryptotext with output of other PRNGs, mixing
 controlled by yet other PRNGs. Thusly, the bit-rate of plain text in
 the crypto-text + random data string can be made as low as required by
-any level of paranoia. If the password determins the PRNG that pulls
+any level of paranoia. If the password determines the PRNG that pulls
 bytes out of the file and also decrypts them, it is easy to have a cover
 file that you can expose, if necessary.
 
@@ -358,7 +369,8 @@ we have 2 more tactics to counter NSA, both forms of evolution.
 First, new functions can be generated.  Because dieharder is the
 acceptance test for prngs and hashes, we can know that each of them is
 functionally correct before they are added to the their function
-list. Every such function increases the problem of decryption.
+list. Every such function in a list increases the problem of decryption,
+exponentially I think.
 
 Second, individuals can agree to generate a new version of the program
 they are jointly using, using the identical password to do so.  The new
@@ -368,12 +380,12 @@ before an opponent could accumulate enough ciphertext to begin to work
 out the encryption methods.
 
 In biological evolution, variation is needed for selection to occur,
-genetic drift has an effect exponentiallly stronger as groups ge
-smaller. Our fitness function is dieharder.
+genetic drift has an effect exponentiallly stronger as groups get smaller.
+Our fitness function is dieharder.
 
 For interative communications, we need to add another level, this is
-evochat.py, not very sophisticated and has an annoying bug. That is not part
-of this initial release, tho the code may be there.
+evochat.py, not very sophisticated and has an annoying bug. That hasn't
+been added yet.
 
 -------------
 Design Notes for the Chat feature :
@@ -413,7 +425,7 @@ Thinking about all of this, I don't believe NSA breaks any reputable
 ciphers. The very finest lithography, full-custom design to run AES is
 probably capable of 2GHz, assume 100 clocks startup time, it can spit
 out an answer 10Mps. But it is just a chip and some memory on a shared
-buss, those can be replicated for 10s of $s and scaled factors of 10 
+bus, those can be replicated for 10s of $s and scaled factors of 10 
 without losing effectiveness.
 
 But that just means don't use small-mechanisms ciphers, don't use
@@ -435,9 +447,9 @@ the 'noise'. on sprinkling evenly distributed bit-strings through the
 covering document as part of the 'noise'. 
 
 Evocrypt is about 150K bytes just now, 1.2M bits. That is a small
-photography, I can see why they use photos, so many bits relative to
+photograph, I can see why they use photos, so many bits relative to
 other documents. But the idea is the same as dilluting a file in
-noise and mixing more than oen file into some other digital entity.
+noise and mixing more than one file into some other digital entity.
 ----
 Another thought I just had while reading that paper is that cascading
 rndomness is a reliable way of producing randomness.  Reasoning is that
@@ -454,10 +466,12 @@ This seems terribly obvious, once you see it, so it can't be a new thought.
 
 Another Lebowski Enlightement. Why didn't everyone know that?
 
-Because the NSA funds all the crypto research, and channels its
+Because the NSA funds all the crypto research, and channels crypto research's
 direction as it does so. A brilliant meta-psyop, much like the Fed has
 done with economic research.
+
 ---------
+
 It should be clear to most anyone I am not a cryptologer. I couldn't
 beak a code to save my life, and therefore must be assumed to know nothing
 about whether my creations are breakable or not.
@@ -466,12 +480,112 @@ However, the basics are simple, way down at bottom.  XOR is a
 bit-level modular addition. The ultimate trap-door function.
 
 After a modulo-operation, you can't know what numbers or symbols made up
-the original 2 number, and the message can be extracted knowing or
-recreating the other. OTOH, if either text or bit-string is too regular,
-the other one will bleed through statistically, and that is enough to unravel
+the original 2 numbers == all numbers are equally probable, and the message
+can only be extracted knowing or recreating the other.
+
+Those are the two fundamental concepts.  All this implementation adds is
+the necessity of having many different functions in each class and
+stacking classes to make password attacks impossible. Maybe the idea of cascading randomness.
+
+
+Working through the evocprngs test code, I realized I had two
+contradictory views of an XOR operation in my head. Still do.
+
+The first was :
+OTOH, if either text or bit-string is too regular, the other one will
+bleed through in bit-level statistics, and that is enough to unravel
 many ciphers. Thus the need for randomness in one of the bit-streams.
 
-But if one of hte string is seriously random, nothing bleeds through.
-Those are the two fundamental concepts.  All this implementation adds is
-the necessity of having many different functions in each class to make
-password attacks impossible. Maybe the idea of cascading randomness.
+The 2nd is :
+But if one of the string is seriously random, nothing bleeds through.
+E.g. suppose the other was a constant b'11111111'. Could you tell? 
+Even if PRNG was non-random, all dieharder would see was the
+non-randomness, not the constant 0xFF.
+
+OTOH, hypothesizing that one number was 0xFF, and being right, tells you
+the other bits. So that is the basis of a statistical attack, stacks of
+'if this bit in the ciphertext strem is '1', that means another bit will
+be '0' derivations, each checked against the actual stream, gradually
+evolving they hypotheses. 
+
+That only works if you know the mechanism and can KNOW those chains of
+logic. Random choosing from random breaks such a chain, or rather takes
+it to a much higher complexity, provably not computable by computational
+complexity arguments. Naively, it seems to me that the complexity of a
+prng is f( size of the state ). The computation in f is relatively
+fixed, so the difficulty in predicting the next prng is proportional to
+the size of the state.
+
+It doesn't matter what that is, so long as it is different than the
+function for the other prngs in an ensemble, using one to choose bits
+from the others is an exponential increase in complexity. Any
+less-than-perfect random output in one would have to be in phase with
+the defect in another. So different depths of vectors, different lags,
+mixed hashes and prngs ...
+-----------
+Thinking about the practical difficulties of managing keys, etc. Once
+per year, individuals need to exchange files securely. That is 'just
+because' precautionary. Each having the other's new system is an
+additional check on the sender's bonafides, e.g. anything not
+super-encrypted with your own program is suspect, and thus an additional
+difficulty for an opponent.
+
+But after that, they can exchange daily passwords in the clear. The
+password is meaningless without the PRNG. If they additionally have
+a shared-private password that they used to fission the lineage (my new
+phrase for this, accurate biology, in fact) of each program with every
+use, they can use the same password for everything.
+
+That is, password and encryption mechanisms are interchangeable in this
+system. It protects against the weaknesses of passwords while using the
+strongest encryptions, theoretically totally resistant to any kind of
+magic decryption mechanisms.
+
+To the idea that this mechanism is impractical for large-volume use, no,
+it just means we need to implement smarter and different. Python is a
+good proof-of-concept language, C++ is probably better for
+implementation at scale.
+
+Further, this is an obvious use for many processor blocks per chip,
+reasonable amount of memory.
+
+The big issue to solve is that this is point-to-point. So a boot-strap
+process and key management == program management.
+
+Bootstrapping secrecy on a comm channel seems straight-forward. Send a
+program in the clear with the instruction that the password is
+"our nickname for the first boss we shared". Then ever-more-elaborate
+guessing games on encrypted links, each producing new fissions of that
+program.
+
+Even if the opposition captures every byte and has the computer and
+human power and information base necessary to work through all that,
+it won't be fast. One other bit of information in a private channel, and
+that chain is broken.
+
+This amplifies the power of shared experience and knowledge.
+
+
+-----------
+
+Randomness selecting randomness, it seems to me, is an exponential
+explosion of the complexity of any attempts to see through a set of
+random numbers to the state of the PRNGs making up the the
+cryptographically secure CPRNG. 
+
+The mechanisms are vast overkill. That gives me confidence.
+
+This doesn't beat the NSA infesting every bit of hardware and software
+we use, but it gives us a chance once we solve the hardware problem.
+
+------------
+algorithm for the dual-file encryption :
+
+Goal is to decode according to which password is given, so a person can
+have 2 passwords for files, one of which decrypts some innocuous message
+of a pair and the other which decrypts the important, sensitive message.
+
+There needs to be a signal at the beginning of the file which password
+decodes which message, innocuous, a good reason for it in the format.
+
+So use a common prng to decide how many of your own characters to insert

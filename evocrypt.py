@@ -3,7 +3,7 @@
 """
 evocrypt.py
 
-This program is designed to foil NSA's password cracks of standard
+This program is designed to foil NSA's password attacks onff standard
 unbreakable ciphers such as AES. It does so by making passwords only one
 component of the encryption system, the particular version of this
 program is the other part of a 2-factor authentication. Additionally,
@@ -58,19 +58,7 @@ values for the various uses throughout the program.
 Each program can generate new versions of itself, so other lineages
 can begin their independent evolution. Every new version will be unique,
 only able to work with copies of itself or generated from the same
-lineage using the same password.
-
-On startup :
-
-0) It reads the password the command line.  If 'encrypt' or 'decrypt'
-are not indicate, the program assumes that stdin and stdout are source
-and destination.
-
-1) Uses the password to select the initialization of the pseudorandom
-number generator function.
-
-
-0) Using the RandomString with one of the hash functions to generate
+parent program using the same password.
 
 
 Current limitations of the code :
@@ -153,12 +141,12 @@ from binascii  import unhexlify
 \n
     """
 
-    for dev_file in dev_files :
+    for dev_file_name in dev_files :
         found_begin = False
 
-        print( sys.stderr, "dev_file = ", dev_file )
+#        print( sys.stderr, "dev_file_name = ", dev_file_name )
         
-        program_file  = open( dev_file, 'r' )
+        program_file  = open( dev_file_name, 'r' )
 
         for this_line in program_file :
 
@@ -188,6 +176,7 @@ from binascii  import unhexlify
 
                 the_program += str( this_line )
 
+        program_file.close()
 
     return the_program
 
@@ -200,43 +189,39 @@ def generate_new_program( password, this_file_name, new_file_name,
     This uses the current single file program text to produce a new program.
 
     Scrambles everything scramblable in the text and writes the program
-        to this_file_name.
+        to new_file_name.
     """
 
-    print( sys.stderr, "generate_new_program : password = '" + password + "'" )
-    print( sys.stderr, "generate_new_program : new_file_name = '" + \
-            new_file_name + "'" )
+#    sys.stderr.write( "generate_new_program : password = '" + password + "'\n" )
+#    sys.stderr.write( "generate_new_program : new_file_name = '" + \
+#            new_file_name + "'\n" )
 
     # need a check for this being a single program
 
     # read the program into a buffer
-    print( sys.stderr, "this_file_name " )
 
     program_file = open( this_file_name, 'r' )
 
     # substitute the new n_K random numbers
     new_randoms_program = replace_random_table( program_file, password,
                                                 array_size )
-    print( sys.stderr, "New_randoms_program = ", new_randoms_program )
 
     # get a 128-bit hash of the program, used to make the new file name
     # this is both a part of decoding files and a self-check for the
     # program's integrity ?
     folded_hash = hash_text( new_randoms_program )[ 3 ]
-    print( sys.stderr, "folded_hash = ", folded_hash,
-           "len = ", len( new_randoms_program)  )
 
     # Generate the new name
     if '.py' in new_file_name[ -3 : ] :
         new_file_name = new_file_name[ 0 : -3 ]
     new_name = new_file_name + '_' + folded_hash + '.py'
-    print( sys.stderr, "new name = ", new_name )
 
     # write the new program
     new_file = open( new_name, 'w' )
     new_file.write( new_randoms_program )
     new_file.close()
 
+    return new_name
 
 def xor_fold( the_value, bit_width ) :
     """
@@ -274,7 +259,7 @@ def hash_text( the_text ) :
     return ( byte_digest, int_digest, hex_digest, short_digest )
 
 
-def hash_file(filename):
+def hash_file( filename ):
     """
     Uses sha512 to compute a 64-bit hash. 64-bits should be large enough
     to prevent collisions. if it gets so popular as for collisions to be
@@ -301,12 +286,9 @@ def check_name_against_hash( this_file_name ) :
     Self-check for whether the program has been modified.
     """
 
-    print( "This file name = ", this_file_name )
+    folded_hash = hash_file( this_file_name )[ 3 ]
 
-    folded_hash = hash_file( this_file_name )
-
-    hash_in_hex        = hex( folded_hash )
-    print( "Hash in hex = ", hash_in_hex )
+    hash_in_hex        = folded_hash
 
     if hash_in_hex not in this_file_name :
         print( "!!!Warning, your program has been modified!!!" )
@@ -340,7 +322,7 @@ def generate_random_array( passphrase, array_size ) :
     # Way more than we are using so far, but this should be a parameter.
     out_line = ''
     for one_line in range( int( array_size / ( 8 * 4 ) ) + 32 ) :
-        sys.stderr.write( "this_line = " + str( one_line ) )
+#        sys.stderr.write( "this_line = " + str( one_line ) )
         for one_number in range( 4 ) :
             lcg_rand = the_fold.fold_it( lcg.next( 256, one_number ), 64 )
             prng_rand = prng.next( 64, one_number )
@@ -442,20 +424,11 @@ def encrypt_file( to_be_encrypted_file_name, password, system_type,
 
     23May 2018 encrypt-decrypt tested via ./crypt_test.bash works again.
     Now to take all the debug stuff back out, 2 steps.
-    """
-#    print( "System_type, paranoia_level = ", system_type, paranoia_level )
 
+    """
     # sha512 is used to test whether the encryption worked or not
     byte_plain_text_digest, int_plain_text_digest, hex_plain_text_digest, \
         short_plain_text_digest = hash_file( to_be_encrypted_file_name )
-
-#    print( '\n byte_plain_text         = ', byte_plain_text_digest,
-#           '\n int_plain_text_digest   = ', hex( int_plain_text_digest ),
-#           '\n hex_plain_text_digest   = ', hex_plain_text_digest,
-#           '\n short_plain_text_digest = ', short_plain_text_digest, '\n' )
-    
-#    print( 'bytes_to_int( byte_plain_digest = ',
-#           bytes_to_int( byte_plain_text_digest ), '\n' )
 
     # the file needs connected with the hash of the encrypting program,
     # contained in its file name. That is another thing to check before
@@ -464,8 +437,8 @@ def encrypt_file( to_be_encrypted_file_name, password, system_type,
     # get a 512-bit hash of the program, used to make the new file name
     # this is both a part of decoding files and a self-check for the
     # program's integrity ?
-    folded_hash = hash_file( sys.argv[ 0 ] )[ 3 ]
-#    print( "folded_hash = ", folded_hash )
+    this_file_folded_hash = hash_file( sys.argv[ 0 ] )[ 3 ]
+#    print( "this_file_folded_hash = ", this_file_folded_hash )
 
     # Generate the new name
     if sys.argv[ 0 ][ -3 : ] != '.py' :
@@ -473,52 +446,36 @@ def encrypt_file( to_be_encrypted_file_name, password, system_type,
         print( "Not a python program? Dangerous to rename your program" )
         sys.exit( 0 )
 
-#    print( "this_program_name = ", sys.argv[ 0 ] )
+    this_file_name_hash = sys.argv[ 0 ]
+    hash_index = this_file_name_hash.index( '_0x' )
+    this_file_name_hash = this_file_name_hash[ hash_index + 1 : -3 ]
 
-    file_name_hash = sys.argv[ 0 ]
-    hash_index = file_name_hash.index( '_0x' )
-    file_name_hash = file_name_hash[ hash_index + 1 : -3 ]
-
-#    print( "file_name_hash = ", file_name_hash )
-    
-    if file_name_hash != folded_hash :
+    if this_file_name_hash != this_file_folded_hash :
         print( "program hash does not match the name" )
-        print( "file_name_hash = ", file_name_hash )
-        print( "folded_hash = ", folded_hash )
+        print( "this_file_name_hash = ", this_file_name_hash )
+        print( "this_file_folded_hash = ", this_file_folded_hash )
         sys.exit( 0 )
 
     encrypted_file_name  = to_be_encrypted_file_name
     encrypted_file_name  += '_' + str( paranoia_level ) 
-    encrypted_file_name  += '_' + folded_hash + ".evocrypt"
-    print( "encrypted_file_name = '", encrypted_file_name, "'\n" )
+    encrypted_file_name  += '_' + this_file_folded_hash + ".evocrypt"
 
     encrypted_fd = open( encrypted_file_name, 'wb')
 
     # first 64 bytes in the file are the sha512 hash of the original file
     encrypted_fd.write( byte_plain_text_digest )
 
+    # This is what makes every different file have a different
+    # encryption key despite using the same password.
     total_password = password + hex_plain_text_digest
-#    print( "pw = '", total_password, "'" )
 
     the_rnt        = RNT( 4096, paranoia_level, system_type, total_password )
-#    print( "password hash = ", hex( the_rnt.password_hash ) )
 
     the_crypto     = CRYPTO( password, system_type, paranoia_level )
     encode         = the_crypto.next()
-#    print( encode )
-
-    # temp code to test that assertion.
-#    samint = 0
-#    for _ in range( 16 ) :
-#        samint  = samint << 8 
-#        samint += encode.next( 8, 1 )
-
-#    print( "initial bytes of encode = ", hex( samint ) )
 
     # read the to-be-encrypted file
     plain_file_data = open( to_be_encrypted_file_name, 'rb').read()
-#    print( to_be_encrypted_file_name, len( plain_file_data ) ,
-#           len( plain_file_data ) % 8 )
 
     encrypted_bytes = bytearray( len( plain_file_data ) )
     for i in range( len( plain_file_data ) ) :
@@ -533,12 +490,6 @@ def encrypt_file( to_be_encrypted_file_name, password, system_type,
     byte_cipher_text_digest, int_cipher_text_digest, hex_cipher_text_digest, \
         short_cipher_text_digest = hash_file( encrypted_file_name )
 
-#    print( '\n len( bytes )  = ', len( byte_cipher_text_digest ),
-#           '\n byte_cypher   = ', byte_cipher_text_digest,
-#           '\n int_cipher    = ', hex( int_cipher_text_digest ),
-#           '\n hex_cipher    = ', hex_cipher_text_digest,
-#           '\n short_cipher  = ', short_cipher_text_digest, '\n' )
-    
     encrypted_fd = open( encrypted_file_name, 'ab')
     encrypted_fd.write( byte_cipher_text_digest )
     encrypted_fd.close()
@@ -548,8 +499,8 @@ def encrypt_file( to_be_encrypted_file_name, password, system_type,
     bytes_cipher_text_digest, int_cipher_text_digest, hex_cipher_text_digest, \
         short_cipher_text_digest = hash_text( cipher_file_data[ 0 : 64 ] )
 
-#    print( "cipher_text hash from the file = ", cipher_file_data[ -64 : ] )
-    
+    return encrypted_file_name
+
 def verify_evocrypt_file_name( to_be_decrypted_file_name ) :
     """
     verify it is an evocrypt file
@@ -563,18 +514,14 @@ def verify_evocrypt_file_name( to_be_decrypted_file_name ) :
     # extract the paranoia level
     paranoia_index = to_be_decrypted_file_name.index( '_0x' )
     paranoia_level = int( to_be_decrypted_file_name[ paranoia_index - 1 ] )
-#    print( "paranoia_level = ", paranoia_level )
 
     original_file_name = to_be_decrypted_file_name[ 0 : paranoia_index - 2]
-#    print( "original_file_name = ", original_file_name )
 
     # verify it has the proper ID for this version of the file 
     evocrypt_index = to_be_decrypted_file_name.index( '.evocrypt' )
 
     evocrypt_version = \
         to_be_decrypted_file_name[ paranoia_index + 1 : evocrypt_index ]
-
-#    print( "evocrypt_version = ", evocrypt_version )
 
     return original_file_name
 
@@ -587,8 +534,6 @@ def verify_cipher_text_digest( cipher_file_data ) :
     bytes_cipher_text_digest, int_cipher_text_digest, hex_cipher_text_digest, \
         short_cipher_text_digest = hash_text( cipher_file_data[ 0 : -64 ] )
 
-#    print( "bytes_cipher_text_digest = ", hex_cipher_text_digest )
- 
     # compare it to the value in the file
     file_bytes_cipher_text_digest = cipher_file_data[ -64 : ]
 
@@ -638,33 +583,21 @@ def decrypt_file( to_be_decrypted_file_name, password, system_type,
 
     24 April, 2018, this works again using the crypt_test.bash.
     """
-
-#    print( "System type, paranoia_level = ", system_type, paranoia_level )
-
     original_file_name = verify_evocrypt_file_name( to_be_decrypted_file_name )
 
     cipher_file_data = open( to_be_decrypted_file_name, 'rb').read()
-#    print( "name = ", to_be_decrypted_file_name, 
-#           "type = ", type( cipher_file_data ),
-#           "len  = ", len( cipher_file_data ) )
-
 
     verify_cipher_text_digest( cipher_file_data )
 
     # first 64 bytes in the file are the sha512 hash of the original file
     byte_plain_text_digest = cipher_file_data[ 0 : 64 ]
-#    print( "byte_plain_text_digest from file = ",
-#            hex( byte_plain_text_digest ) )
 
     total_password = password + byte_plain_text_digest.hex()
-#    print( "pw = '", total_password )
 
     the_rnt       = RNT( 4096, paranoia_level, 'desktop', total_password )
-#    print( "password hash = ", hex( the_rnt.password_hash ) )
 
     the_crypto = CRYPTO( password, system_type, paranoia_level )
     decode     = the_crypto.next()
-#    print( decode )
 
     # at this point, decode is in the same state as encode, so 
     # we can decipher with the prng stream.
@@ -675,12 +608,8 @@ def decrypt_file( to_be_decrypted_file_name, password, system_type,
         samint  = samint << 8 
         samint += decode.next( 8, 1 )
 
-#    print( "initial bytes of decode = ", hex( samint ) )
-
-
     # 512 bits in each of 2 hashes is added by encrypt()
     cipher_byte_count = ( len( cipher_file_data ) - 128 )
-#    print( "cipher_byte_count", cipher_byte_count )
 
     decrypted_bytes = bytearray( cipher_byte_count )
     for i in range( cipher_byte_count ) :
@@ -691,11 +620,17 @@ def decrypt_file( to_be_decrypted_file_name, password, system_type,
 
     # this should check candidate names, recursively. Wiping out files
     # by decoding is a real no-no.
-    if os.path.isfile( original_file_name ) :
-        original_file_name += '.v1' 
-    output_file = open( original_file_name, 'wb' )
+    while i in range( 1000 ) : # vast overkill, necessary for testing
+        candidate_file_name = original_file_name + '.v' + chr( i )
+        if os.path.isfile( candidate_file_name ) :
+            new_file_name = candidate_file_name 
+            break
+
+    output_file = open( new_file_name, 'wb' )
     output_file.write( decrypted_bytes )
     output_file.close()
+
+    return decrypted_file_name
 
 # Unix utility mode can have no checks done, so the burden of making
 # sure operations are correct and files correctly named rests entirely
@@ -713,35 +648,37 @@ def crypt( password, system_type, paranoia_level ) :
     """ 
 
     the_rnt       = RNT( 4096, paranoia_level, system_type, password )
-    sys.stderr.write( "password hash = " + hex( the_rnt.password_hash ) )
+#   sys.stderr.write( "password hash = " + hex( the_rnt.password_hash ) + '\n' )
 
     the_crypto    = CRYPTO( password, system_type, paranoia_level )
-    code_it       = the_crypto.next()
+    crypt_it      = the_crypto.next()
 
     # at this point, code_it is in a state entirely determined from the
     # password and RNT.
 
     bin_vector = array( 'B' )
     bin_vector.append( 0 )
-    stdout = os.fdopen( sys.stdout.fileno(), 'wb' )
-    stdin  = os.fdopen( sys.stdin.fileno(),  'rb' )
              
     while True:
         try :
-            in_byte = sys.stdin.buffer.read( 1 )
+            in_byte = sys.stdin.read( 1 )
         except IOError as msg :
             break
 
-        # this took a while to figure out!
         if len( in_byte ) == 0 :
             break
 
-        the_byte = int.from_bytes( in_byte, 'big' )
+        if type( in_byte ) == type( 'a' ) :
+            the_byte = ord( in_byte )
+        else :
+            the_byte = int.from_bytes( in_byte, 'big' )
 
         # horribly inefficient, but simple, avoids the byte problem
-
-        bin_vector[ 0 ] = the_byte ^ code_it.next( 8, paranoia_level )
-        bin_vector.tofile( stdout )
+        bin_vector[ 0 ] = the_byte ^ crypt_it.next( 8, paranoia_level )
+        if type( in_byte ) == type( 'a' ) :
+            sys.stdout.write( chr( bin_vector[ 0 ] ) )
+        else :
+            bin_vector.tofile( sys.stdout )
 
 
 def usage() :
@@ -761,7 +698,6 @@ def usage() :
         -h      Invokes this usage function
 
         --password <password>
-        -p <password>
             The password used for encrypting the file
             Also, the password used to initialize all of the variables
             needed for generating a new program.
@@ -781,23 +717,37 @@ def usage() :
         --decrypt <name>
         -d <name>
 
-        --paranoia_level
-        -p           1, 2, or 3, 3 being maximum paranoia
+        If neither --encrypt or --decrypt, evocrypt assumes it is being
+        used as a standard Unix utility, input via stdin and output via
+        stdout. !!!Warning!!! This assumes you know what you are doing,
+        and how to avoid the dangers of a PRNG-XOR stream cipher. Chief
+        of those is the danger of using the same PRNG stream twice.
+        Don't do that, it can be the key to decoding both files and even
+        working back to understanding the PRNG producing the random
+        number stream.
+
+        Unix utility mode cannot do checks or handle naming as do the
+        encrypt/decrypt mechanisms.
+
+        --paranoia <paranoia_level>
+            1, 2, or 3, 3 being maximum paranoia
 
         --system_type
         -s           'big', 'desktop', 'laptop', 'cellphone' 
             Any Unix laptop can handle 'big' and maximum_paranoia, it
             will just take longer.
 
-        --new
-        -n 
+        --new <name>
+        -n    <name>
             Generate a new program
 
             Every program is different, even if the same password is
             used again and again.
             
-            The new program's name is 'evocrypt-xxxxxxxx', where the x's are
-            the ?? hash of the string just before writing it to the file.
+            The new default's program's name is 'evocrypt-xxxxxxxx.py',
+            otheerwise <your name>-xxxxxxxx.py where the x's are
+            the hex representation of the folded sha512-bit hash of the
+            string just before writing it to the file.
     """
 
 #SINGLE_PROGRAM_TO_HERE
@@ -827,23 +777,21 @@ def usage() :
 #
 if __name__ == "__main__" :
 
+# stderr because stdin/stdout can be used for encryption
 
-
-#    print( '#' + __filename__ )
-#    print( '#' + __version__ )
-#    print( '#' + str( sys.argv[ 1 : ] ) )
+    sys.stderr.write( '# ' + __filename__ + ' : ' + __version__ + ' : ' +
+                      str( sys.argv[ 1 : ] ) + '\n' )
 
     # which ones need an '=' ?
-    SHORT_ARGS = "a=d=e=g=hn=p=s=t="
-    LONG_ARGS  = [  'help' , 'assemble=', 'generate=', 'decrypt=',
-                    'encrypt=', 'new=', 'paranoia=','password=', 'test=' ]
+    SHORT_ARGS     = "a=d=e=g=hn=s=t="
+    LONG_ARGS      = [  'assemble=', 'decrypt=', 'encrypt=', 'generate=',
+                        'help', 'new=', 'paranoia=','password=', 'test=' ]
 
-    TEST_LIST = []      # list of tests to execute
-    PASSWORD = ''
-    SYSTEM_TYPE = 'laptop'      # default
+    TEST_LIST      = []        # list of tests to execute
+    PASSWORD       = ''
+    SYSTEM_TYPE    = 'laptop'   # default
     PARANOIA_LEVEL = 1          # default
-    FILE_NAME = ''
-    OPERATING_MODE = 'Unux'
+    FILE_NAME      = ''
 
     try :
         OPTS, ARGS = getopt.getopt( sys.argv[ 1 : ], SHORT_ARGS, LONG_ARGS )
@@ -933,11 +881,11 @@ if __name__ == "__main__" :
             PROGRAM_FILE.write( str( THE_PROGRAM ) )
             sys.exit( 0 )
 
-        if o in ( "--test" ) :
+        if o in ( "--test" ) or o in ( "-t" ) :
             TEST_LIST.append( a )
 
     if 'hash_file' in TEST_LIST :
-        print( hash_file( FILE_NAME ) )
+        print( hash_file( "TestText.txt" ) )
 
     if 'update_name' in TEST_LIST :
         THE_HASH = hash_file( FILE_NAME )[ 3 ]
@@ -959,6 +907,7 @@ if __name__ == "__main__" :
 
 
 #SINGLE_PROGRAM_FROM_HERE
+    #!!! DANGEROUS !!!
     # Here no file operation has been specified, so we use stdin/out
     # example command :
     # ./evocrypt.py --password umberalertness < TODO.crypt > TODO.new \

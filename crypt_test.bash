@@ -28,3 +28,5 @@ chmod +x evo_new1*.py
 
 ./evo_new1*.py --password umberalertness --decrypt test_file.txt*.evocrypt > evo_new1_decrypt.stdout 2> evo_new1_decrypt.stderr
 
+./evocrypt.py --password Fredericko < test_file.txt 2> encrypt.tmp |
+./evocrypt.py --password Fredericko 2> decrypt.tmp

@@ -122,8 +122,6 @@ class PRNGs() :
         self.next_prng_index += 1
         self.next_prng_index %= len( self.prng_functions )
 
-#        sys.stderr.write( "this_prng = " + str( this_prng ) + '\n' )
-
         return  this_prng( the_rnt, integer_width, prng_depth, paranoia_level,
                             multiplier, constant, lag )
 
@@ -157,7 +155,6 @@ class KnuthMMIX() :
         """
         returns a bit-width integer
         """
-#        sys.stderr.write( "KnuthMMIX : steps = " + str( steps ) + '\n' )
         return_value = 0
         while return_value < ( 1 << bit_width * 2 ) :
             return_value <<= 16
@@ -169,7 +166,6 @@ class KnuthMMIX() :
             return_value ^= ( self.seed << 16 ) 
             self.seed &= self.integer_mask
 
-#            sys.stderr.write( "return_value = " + hex( return_value ) + '\n' )
         return self.the_fold.fold_it( return_value, bit_width )
 
 class KnuthNewLib() :
@@ -207,11 +203,7 @@ class KnuthNewLib() :
         """
         return_value = 0
         # left shift produces very large #s if paranoid and initial spins
-#        sys.stderr.write( "KnuthNewLib : bit_width = " + str( bit_width ) 
-#                         + "steps = " + str( steps ) + "paranoia_level = " 
-#                         + str( self.paranoia_level ) + '\n' )
         shift_width    = int( bit_width / ( 4 *  steps * self.paranoia_level))+1
-#        sys.stderr.write( "KnuthNewLib shift_width = "+ str( shift_width )+'\n')
         while return_value < ( 1 << bit_width * 2 ) :
             for _ in range( steps * self.paranoia_level ) :
                 # seed0 is stepped 1/2 rate of seed2, same progression.
@@ -571,7 +563,6 @@ class LCG():
         """
         Debug code
         """
-#        sys.stderr.write( "lcg dump_state" + '\n' )
         for element in self.integer_vector :
             print( hex( element ) + '\n' )
 
@@ -796,9 +787,9 @@ class MultiplyAdd03( MultiplyAdd02 ) :
 
     I like that, meaningfully scalable in paranoia. Note there is no
     reason for the multiplier and addition values to be paired, they
-    only need be relatively prime, and are in fact prime. So how to make
-    that evolve and have the largest possible primes do that? There need
-    only be 2, so ...
+    only need be relatively prime, and are in fact prime in this code.
+    So how to make that evolve and have the largest possible primes do that?
+    There need only be 2, so ...
 
     This design has the multiplier and addition indexes incremented with
     different prime numbers, so permanently out of step with each other
@@ -823,6 +814,7 @@ class MultiplyAdd03( MultiplyAdd02 ) :
     $ wc lew.sorted_unique    8284370   8284370 169829571 lew.sorted_unique
 
     68 / 8,284,438 random integers is 8 in a million collisions 
+
     The range 0 1 << 48 bits is 256*1024*1024*1024*1024
     of which I used only 40%. Now I am stuck on how to figure lottery odds.
     .4 * 256T / 8,284,438 = 13,590,540
@@ -855,13 +847,10 @@ class MultiplyAdd03( MultiplyAdd02 ) :
 
         # range of top and bottom quartiles
         increment = int( rnt.randint( 48 ) / n_integers )
-#        sys.stderr.write( 'MultiplyAdd03 : increment = ' +str( increment )+'\n')
 
         for _ in range( n_integers ) :
             big_prime   = get_next_higher_prime( int( big_prime   + increment ))
             small_prime = get_next_higher_prime( int( small_prime + increment ))
-#            sys.stderr.write( 'MultiplyAdd03 : ' + hex( big_prime ) + ' : '
-#                              + hex( small_prime ) + '\n' )
             self.multipliers.append( big_prime )
             self.additions.append( small_prime )
 
@@ -989,86 +978,10 @@ class MultiplyAdd04( MultiplyAdd03 ) :
         # modifying a_temp above did not make it non-random!
         return_value = self.the_fold.fold_it( return_value, bit_width )
 
-        # intentional_5 is the first run with this, at %16. It was weak on an
-        # opso, the rest are passing.  Truly, dieharder is not very
-        # sensitive.
-        # intentional_6 will run with % 12.
-
-        # it seems to me that because it is so insensitive, I would need
-        # perhaps 100M samples rather than 1 before Dieharder would see
-        # a bias from a pair of multiplier-addition.
-
-        # How to make dieharder more sensitive? The statistics I
-        # was doing on my own would have detected too many 0 and 1
-        # values in a byte, how can dieharder miss it?
-
-        # intentional_6 the first 5 dieharder tests all pass with 12
-
-        # intentional_7 will use % 8. so 1 of 16 tests uses MA04 and of
-        # the numbers MA04 produces, one of 8 is 00s. Considering that
-        # dieharder sees 15 OK PRNGs for every PRNG that is producing
-        # biased random number streams, maybe dieharder isn't as
-        # insensitive as I had thought.
-
-        # intentional_8 1 of 8 and % 8, so 2x more flaws than 7
-        # the first 9 dieharder tests, through DNA, PASSED
-
-        # OK, something extreme, to be sure I can have an effect.
-
-        # I was testing BIG_PRIME for non-1 in the lowest 3 bits,
-        # meaning zero, which is dumb. Primes aren't ever zero.
-        # intentional_9 uses its own counter.
-
-
-        # intentional_9 is finally right, I can see the MA04
-        # instantiations. Finally, it has an effect. 5 failed, 3 weak,
-        # 11 passed. That is 1 Ma04 for 3 MA03s, 1M integers each,
-        # and every 3th number is 0x00 in the low byteand every 3th
-        # number is 0x00 in the low byte. So all dieharder tests are
-        # not sensitive to the same things.
-
-        # intentional_9 fails: PASSED 19 FAILED 20 WEAK 18
-        # intentional_10 selects MA04 1/16 times rather than 1/7
-        # intentional_11 selects MA04 1/32 times
-
-        # accumulated dieharder results from all the intentional series
-        # that did not fail because of my dumb mistakes and from plain 03 tests
-        # PASSED 933 FAILED 1 WEAK 19 = 19 / 953 = 1.9% FAIL 2x too high
-        # FAIL = 1 / 933 = 0.1%, very close to correct
-        # SO PROVISIONAL ACCEPTANCE OF the MultiplyAdd03 algorithm.
-
-        # Early results say 10 is weak in 1 of first 4, 11 is OK.
-        # So increase the rate of error for MA04 for 12 to 1/4 integers
-        # emitted.
-
-        # 12 is weak on birthdays, passes the next 5
-
-
-        # First 20 of 11 are OK, 17 of 10.  Why the difference in speed?
-        # Dieharder is adjusting number of samples as it runs?
-
-        # the counter has been set at 1M, intentional_13 will make it 10M
-        # and see if that changes the results. It is otherwise like 12.
-
-        # 10M and 1 MA04 to 15 MA03s for intentional_13
-
         self.counter += 1
         if self.counter % 4 == 0 :
             return_value = return_value & 0xffffffffffffff00 # too many
                                                              # 0s in low byte
-
-#        if return_value & 0x0f == 0 or return_value & 0x0e == 0 :
-        # one of 16 is non-random in the low byte
-#            return_value = return_value & 0xffffffffffffff00 # too many
-                                                             # 0s in low byte
-
-        # I had the code wrong here, so this wasn't working in the
-        # intentional_3 test, it is the same as intentional_2
-        # intentional_4 will have all 4 working.
-#        if return_value & 0x0f == 0x0f or return_value & 0x0e == 0x0e :
-        # one of 16 is non-random in the low byte
-#            return_value = return_value | 0xff # too many 1s in low byte
-
         return return_value
 
         
@@ -1213,7 +1126,7 @@ if __name__ == "__main__" :
                         SMALL_PRIME = get_next_higher_prime(
                                                         int((MAX_INTEGER*1)/5))
 
-                        LAG = int( INT_VECTOR_DEPTH / 2 )
+                        LAG = INT_VECTOR_DEPTH >> 1
 
                         
                         THIS_PRNG = THE_PRNGs.next( THE_RNT, INTEGER_WIDTH,

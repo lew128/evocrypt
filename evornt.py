@@ -509,7 +509,7 @@ class RNT() :
         # check on desired_rnt_size, must be a power of two for the mask
         # to work.
         assert isPowerOfTwo(  desired_rnt_bytes ), \
-               "rnt bytes is not a power of 2!"
+               "RNT bytes is not a power of 2!"
 
         # paranoia level controls the complexity of entropy-producing
         # calculations

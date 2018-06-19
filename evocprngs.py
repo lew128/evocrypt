@@ -31,14 +31,18 @@ import getopt
 import random
 import glob
 import struct
-from array     import array
+import array
+import evoutils
 from evofolds  import FoldInteger
-from evohashes import HASHES, HASH0
+from evohashes import HASHES
 from evornt    import RNT
 from evoprimes import get_next_higher_prime
-from evoutils  import print_stacktrace
-from evoprngs  import PRNGs, KnuthMMIX, KnuthNewLib, LongPeriod5, \
-                      LongPeriod256, CMWC4096, LCG, MultiplyAdd03, byte_rate
+from evoprngs  import PRNGs, LCG, byte_rate
+from evoutils  import VERBOSITY_LEVEL, DEBUG_FD, debug, close_files_and_exit, \
+                     print_stacktrace, print_stacktrace_exit
+
+
+#from evochat   import LOG_FD
 
 #SINGLE_PROGRAM_FROM_HERE
 
@@ -79,7 +83,7 @@ class CRYPTO :
     both sides have to be using the same choices, or you can't
     communicate.
     """
-    # this returns tuples of n_prngs, integer_width, 'vector_size'
+    # this returns tuples of n_vectors, integer_width, 'vector_size'
     # This is easily changed or extended without touching the code.
     # But this is vast overkill and could be counter-productive. Who has
     # explored the internal dynamics of multiplying and adding very large
@@ -120,7 +124,7 @@ class CRYPTO :
 
         self.system_type       = system_type
         self.paranoia_level    = paranoia_level
-        self.n_prngs, self.integer_width, self.vector_size = \
+        self.n_vectors, self.integer_width, self.vector_depth = \
             self.system_paranoia[ system_type ][ paranoia_level ]
 
         self.crypto_functions = [ LcgCrypto, HashCrypto, PrngCrypto ]
@@ -147,8 +151,8 @@ class CRYPTO :
         self.next_crypto_index += 1
         self.next_crypto_index %= len( self.crypto_functions )
 
-        return  this_crypto( self.the_rnt, self.n_prngs,
-                             self.integer_width, self.vector_size,
+        return  this_crypto( self.the_rnt, self.n_vectors,
+                             self.integer_width, self.vector_depth,
                              self.paranoia_level )
 
 
@@ -180,7 +184,7 @@ class LcgCrypto() :
     It seems a genealization of the idea behind the LCG, but ...
     """
 
-    def __init__( self, the_rnt, n_prngs, prng_bit_width, vector_depth,
+    def __init__( self, the_rnt, n_vectors, prng_bit_width, vector_depth,
                   paranoia_level ) :
         """
         Initializes N LCGs of bit_width and vector_depth.
@@ -211,9 +215,9 @@ class LcgCrypto() :
 
         self.entropy_bits        = the_rnt.password_hash
         self.the_rnt             = the_rnt
-        self.n_prngs             = n_prngs
+        self.n_vectors           = n_vectors
         self.integer_width       = prng_bit_width
-        self.vector_depth           = vector_depth
+        self.vector_depth        = vector_depth
         self.paranoia_level      = paranoia_level
 
         self.bit_selection_mask  = prng_bit_width - 1
@@ -252,11 +256,11 @@ class LcgCrypto() :
                         int( self.max_integer * .1 )
 
         # 1/Nth of 30% of the total range
-        delta        = int( ( current_max * .3 ) / self.n_prngs )
+        delta        = int( ( current_max * .3 ) / self.vector_depth )
 
-        lag = 7   # initial lag.  Even if the primes become > n_prngs, it
-                # is OK because that wraps around the vector.
-        for i in range( self.n_prngs ) :
+        lag = 7   # initial lag.  Even if the primes become > vector_depth, it
+                  # is OK because that wraps around the vector.
+        for i in range( self.vector_depth ) :
             multiplier   = get_next_higher_prime( current_max )
             constant     = get_next_higher_prime( current_min )
             lag          = get_next_higher_prime( lag )
@@ -272,9 +276,10 @@ class LcgCrypto() :
             lag         += 2
             delta        = get_next_higher_prime( delta )
 
-        for i in range( self.n_prngs ) :  
+        for i in range( self.vector_depth ) :  
+            # steps should be dependent on pw
             steps = self.the_rnt.password_hash % 64
-            self.prng_vector[ i ].next( 8, steps ) #should be dependent on pw
+            self.prng_vector[ i ].next( 8, steps )
 
     def next( self, bit_width, steps ) :
         """
@@ -300,19 +305,19 @@ class LcgCrypto() :
         # bit_width.  That is a power of 2, of course.
         bit_selection_mask = bit_width - 1
         return_integer = 0
-        self.next_prng %= ( self.n_prngs - 1 )
+        self.next_prng %= ( self.vector_depth - 1 )
         for _ in range( steps ) :
             for bit_index in range( bit_width ) :
     
                 # bit is selected by the last prng in the vector
                 selected_bit_index = \
-                            self.prng_vector[ self.n_prngs - 1 ].next(
+                            self.prng_vector[ self.vector_depth - 1 ].next(
                                 bit_width, 1 ) &  bit_selection_mask 
     
                 lcg_value = \
                     self.prng_vector[ self.next_prng ].next( bit_width, 1 )
                 self.next_prng += 1
-                self.next_prng %= ( self.n_prngs - 1 )
+                self.next_prng %= ( self.vector_depth - 1 )
     
                 # shift a bit to the selected bit index
                 bit_mask = 1 << selected_bit_index
@@ -346,23 +351,34 @@ class LcgCrypto() :
 
         Plain text can be a short string or a file read.  Those are
         ascii and [], there may be other special cases for later.
+
+        returns bytes
         """
         assert isinstance( plain_text, type( 'a' ) ) or \
                isinstance( plain_text, type( [] ) )
         
-        cipher_text = ''
-        if isinstance( plain_text, type( 'a' ) ) :
+        cipher_text = bytearray( b'' )
+        if   isinstance( plain_text, type( b'' ) )  or \
+             isinstance( plain_text, bytearray ) :
             for plain_byte in plain_text :
                 rand_byte = self.next( 8, steps )
-#                sys.stderr.write( "encode rand_byte = "+hex( rand_byte+'\n' ) )
-                cipher_text += chr( rand_byte ^ ord( plain_byte ) )
-#                cipher_text += chr( ( rand_byte ^ ord( plain_byte ) ) & 0xFF )
+
+                cipher_byte  = rand_byte ^ ord( plain_byte )
+                cipher_text.append( cipher_byte & 0xff )
+
+        elif isinstance( plain_text, type( 'a' ) ) :
+            for plain_byte in plain_text :
+                rand_byte = self.next( 8, steps )
+
+                cipher_byte  = rand_byte ^ ord( plain_byte )
+                cipher_text.append( cipher_byte & 0xff )
+
         elif isinstance( plain_text, type( [] ) ) :
             for plain_line in plain_text :
                 for plain_byte in plain_line :
                     assert isinstance( plain_byte, type( 'a' ) )
-                    cipher_text += chr( ( ord( self.next( 8, steps ) ) ^ \
-                                          ord( plain_byte ) ) & 0xFF )
+                    cipher_text.append( ord( self.next( 8, steps ) ) ^ \
+                                          ord( plain_byte ) & 0xFF )
 
         return cipher_text
 
@@ -372,14 +388,22 @@ class LcgCrypto() :
         """
 
         plain_text = ''
-        if isinstance( cipher_text, type( 'a' ) ) :
+        if   isinstance( cipher_text, type( b'' ) )  or \
+             isinstance( cipher_text, bytearray ) :
             for ciph_byte in cipher_text :
                 rand_byte = self.next( 8, steps )
-#                sys.stderr.write( "decode rand_byte = "+hex( rand_byte + '\n'))
 
-                plain_text += chr( rand_byte ^ ord( ciph_byte ) )
+                plain_byte = chr( rand_byte ^ ciph_byte )
+                plain_text += plain_byte
 
-        if isinstance( plain_text, type( [] ) ) :
+        elif isinstance( cipher_text, type( 'a' ) ) :
+            for ciph_byte in cipher_text :
+                rand_byte = self.next( 8, steps )
+
+                plain_byte = chr( rand_byte ^ ord( ciph_byte ) )
+                plain_text += plain_byte
+
+        elif isinstance( plain_text, type( [] ) ) :
             for ciph_line in cipher_text :
                 for ciph_byte in ciph_line :
                     assert isinstance( ciph_byte,  type( 'a' ) )
@@ -406,24 +430,22 @@ class HashCrypto( LcgCrypto ) :
 
     54827.50326797386 bytes / second, 5x faster than PrngCrypto
     """
-    def __init__( self, the_rnt, n_hashes, integer_width, hash_depth,
+    def __init__( self, the_rnt, n_vectors, integer_width, vector_depth,
                   paranoia_level ) :
         """
         initializes N LCGs 
         """
-        self.hash_function_vector = []
-        self.total_cycles         = 0
-        self.the_rnt              = the_rnt
-        self.n_hashes             = n_hashes
-        self.integer_width        = integer_width # both prng and hash
-        self.hash_depth           = hash_depth 
-        self.paranoia_level       = paranoia_level
+        LcgCrypto.__init__( self, the_rnt, n_vectors, integer_width,
+                            vector_depth, paranoia_level )
         self.bit_selection_mask   = integer_width - 1
         self.next_integer            = 0
 
+        self.total_cycles         = 0
+        self.hash_function_vector = []
+
         self.the_fold              = FoldInteger()
 
-        hash0 = HASHES( the_rnt, integer_width, hash_depth )
+        hash0 = HASHES( the_rnt, integer_width, vector_depth )
         for i in range( len( hash0.hash_functions ) ) :
             self.hash_function_vector.append( hash0.next() )
             
@@ -452,12 +474,12 @@ class HashCrypto( LcgCrypto ) :
 
         return_value = 0
         for i in range( steps ) : 
-            self.next_integer = ( self.hash_depth + 1 ) % self.hash_depth
+            self.next_integer = ( self.vector_depth + 1 ) % self.vector_depth
 
             # if the application uses prime values for the depth, any
             # number will do.  Otherwise, 3 and 7 are at least relatively-prime
-            rnt_addr0 = ( self.next_integer + i +  3 ) % self.hash_depth
-            rnt_addr1 = ( self.next_integer + i + 11 ) % self.hash_depth
+            rnt_addr0 = ( self.next_integer + i +  3 ) % self.vector_depth
+            rnt_addr1 = ( self.next_integer + i + 11 ) % self.vector_depth
 
             # the hash update is the slow part. RNT is to prevent cycles
             update_value  = self.the_integer_vector[ rnt_addr0 ]
@@ -501,9 +523,12 @@ class PrngCrypto( LcgCrypto ) :
     increasing primes for the lags, thus to produce the longest cycles.
 
     This is very slow even on my serious system : 11088 bytes/ second.
+
+    This should use the hashes, also, but it will require a next
+    function.
     """
 
-    def __init__( self, the_rnt, n_prngs, integer_width, vector_depth,
+    def __init__( self, the_rnt, n_vectors, integer_width, vector_depth,
                   paranoia_level ) :
         """
         Initializes N PRNGs of bit_width and vector_depth.
@@ -530,13 +555,10 @@ class PrngCrypto( LcgCrypto ) :
 
         """
 
-        sys.stderr.write( "__init__ prngCrypto\n" )
+        LcgCrypto.__init__( self, the_rnt, n_vectors, integer_width,
+                            vector_depth, paranoia_level )
+#        sys.stderr.write( "__init__ prngCrypto\n" )
         self.entropy_bits        = the_rnt.password_hash
-        self.the_rnt             = the_rnt
-        self.n_prngs             = n_prngs
-        self.integer_width       = integer_width
-        self.vector_depth        = vector_depth
-        self.paranoia_level      = paranoia_level
 
         self.bit_selection_mask  = integer_width - 1
         self.next_prng           = 0
@@ -548,8 +570,7 @@ class PrngCrypto( LcgCrypto ) :
 
         self.the_fold            = FoldInteger( )
 
-        # hash_depth should be differently different than vector_depth
-        # good enough for now.
+        # n_vectors should be differently different than vector_depth
         hashes = HASHES( the_rnt, self.integer_width, self.vector_depth )
         the_hash = hashes.next()
 
@@ -575,12 +596,12 @@ class PrngCrypto( LcgCrypto ) :
                         int( self.max_integer * 0.1 )
 
         # 1/Nth of 30% of the total range
-        delta        = int( ( current_max * .3 ) / self.n_prngs )
+        delta        = int( ( current_max * .3 ) / self.vector_depth )
 
-        lag = 7   # initial lag.  Even if the primes become > n_prngs, it
+        lag = 7   # initial lag.  Even if the primes become > vector_depth, it
                 # is OK because that wraps around the vector.
         prngs = PRNGs()
-        for i in range( self.n_prngs ) :
+        for i in range( self.vector_depth ) :
             if current_max < 0 :
                 current_max = -current_max
             if current_min < 0 :
@@ -591,33 +612,28 @@ class PrngCrypto( LcgCrypto ) :
             addition     = get_next_higher_prime( current_min )
             lag          = get_next_higher_prime( lag )
 
-#            sys.stderr.write( hex( multiplier ) + '\n' + hex( addition ) + '\n'
-#                            + hex( lag ) + '\n')
-
             # seed, rnt, integer_width, hash_depth, multiplier, constant, lag 
-            # prng_set size, n_prngs,  should be differently different than
+            # prng_set size, vector_depth,  should be differently different than
             # vector_depth
             # good enough for now.
-            for _ in range( n_prngs ) :
+            for _ in range( vector_depth ) :
                 the_prng = prngs.next( the_rnt, self.integer_width,
                         self.vector_depth, paranoia_level, multiplier,
                         addition, lag )
 
-#                sys.stderr.write( "PrngCrypto : the_prng = " +
-#                                  the_prng.name() + '\n' )
                 self.prng_set.append( the_prng )
 
                 current_max -= delta
                 current_min += delta
-                lag         += 2
+                lag         += 1
                 delta        = get_next_higher_prime( delta )
 
-        for i in range( self.n_prngs ) :  
+        for i in range( self.vector_depth ) :  
             # steps should be dependent on the pw
             steps = self.the_rnt.password_hash % 64
             self.prng_set[ i ].next( 8, steps )
 
-            sys.stderr.write( "init finished\n" )
+#            sys.stderr.write( "init finished\n" )
 
     def next( self, bit_width, steps ) :
         """
@@ -643,20 +659,19 @@ class PrngCrypto( LcgCrypto ) :
         # bit_width.  That is a power of 2, of course.
         bit_selection_mask = bit_width - 1
         return_integer = 0
-        self.next_prng %= ( self.n_prngs - 1 )
-#        sys.stderr.write( "steps = " + str( steps ) + '\n' )
+        self.next_prng %= ( self.vector_depth - 1 )
         for _ in range( steps ) :
             for bit_index in range( bit_width ) :
     
                 # bit is selected by the last prng in the vector
                 selected_bit_index = \
-                            self.prng_set[ self.n_prngs - 1 ].next(
+                            self.prng_set[ self.vector_depth - 1 ].next(
                                 bit_width, 1 ) &  bit_selection_mask 
     
                 lcg_value = \
                     self.prng_set[ self.next_prng ].next( bit_width, 1 )
                 self.next_prng += 1
-                self.next_prng %= ( self.n_prngs - 1 )
+                self.next_prng %= ( self.vector_depth - 1 )
     
                 # shift a bit to the selected bit index
                 bit_mask = 1 << selected_bit_index
@@ -671,7 +686,6 @@ class PrngCrypto( LcgCrypto ) :
                 return_integer |= ( bit_value << bit_index )
     
         self.total_cycles += steps
-#        sys.stderr.write("total_cycles = " + str( self.total_cycles ) + '\n'  )
         return return_integer & ( ( 1 << bit_width ) - 1 )
 
 
@@ -684,72 +698,22 @@ class PrngCrypto( LcgCrypto ) :
             element.dump_state()
 
 
-    def encrypt( self, plain_text, steps ) :
-        """
-        Encrypts a message string and returns the encrypted string.
-        This only handles text, other data needs serialized.
-
-        Plain text can be a short string or a file read.  Those are
-        ascii and [], there may be other special cases for later.
-        """
-        assert isinstance( plain_text, type( 'a' ) ) or \
-               isinstance( plain_text, type( [] ) )
-        
-        cipher_text = ''
-        if isinstance( plain_text, type( 'a' ) ) :
-            for plain_byte in plain_text :
-                rand_byte = self.next( 8, steps )
-#                sys.stderr.write( "encode rand_byte = " + hex(rand_byte )+'\n')
-                cipher_text += chr( rand_byte ^ ord( plain_byte ) )
-#                cipher_text += chr( ( rand_byte ^ ord( plain_byte ) )
-#                & 0xFF )
-        elif isinstance( plain_text, type( [] ) ) :
-            for plain_line in plain_text :
-                for plain_byte in plain_line :
-                    assert isinstance( plain_byte, type( 'a' ) )
-                    cipher_text += chr( ( ord( self.next( 8, steps ) ) ^ \
-                                          ord( plain_byte ) ) & 0xFF )
-
-        return cipher_text
-
-    def decrypt( self, cipher_text, steps ) :
-        """
-        decrypts a message string and returns the encrypted string.
-        """
-
-        plain_text = ''
-        if isinstance( cipher_text, type( 'a' ) ) :
-            for ciph_byte in cipher_text :
-                rand_byte = self.next( 8, steps )
-#                sys.stderr.write( "decode rand_byte = "+hex( rand_byte ) +'\n')
-
-                plain_text += chr( rand_byte ^ ord( ciph_byte ) )
-
-        if isinstance( plain_text, type( [] ) ) :
-            for ciph_line in cipher_text :
-                for ciph_byte in ciph_line :
-                    assert isinstance( ciph_byte,  type( 'a' ) )
-                    plain_text += chr( ( ord( self.next( 8, steps ) ) ^ \
-                                         ord( ciph_byte ) ) & 0xFF )
-        
-        return plain_text
-
 def generate_random_table( the_rnt, n_bytes, bitwidth ) :
     """
     generate N bytes of random data in 64-bit hexadecimal words
-    I used this to generate the first-generation evocrypt.py'
-    4K_Constant bytes.
+    I use this to generate the first-generation evocrypt.py'
+    4K_Constant bytes when the program is fissioned.
     """
 
     random_table = ''
-    lcg_crypto = LcgCrypto( the_rnt, 23, 256, 31, 1 )
+    the_crypto = PrngCrypto( the_rnt, 23, 256, 31, 1 )
 
     # this is 4K bytes as lines of 8-byte words in hexadecimal
     # 4 words per line
     for _ in range( int( n_bytes / ( 8 * 4 ) ) ) :
         the_line = ''
         for _ in range( 4 ) :
-            the_value = lcg_crypto.next( bitwidth, 1 )
+            the_value = the_crypto.next( bitwidth, 1 )
 
             the_line += format( the_value,' >#18X' ) + ','
 
@@ -779,7 +743,8 @@ CRYPTO_PRNG_FUNCTIONS = [ HashCrypto, LcgCrypto ]
 #CRYPTO_PRNG_FUNCTIONS = [ HashCrypto, TwisterCrypto, LcgCrypto ]
 
 
-# main begins here, generally test code for the module.
+# main begins here, test code for the module, it does nothing useful by
+# itself.
 
 if __name__ == "__main__" :
 
@@ -815,11 +780,12 @@ if __name__ == "__main__" :
     PASSPHRASE = PASSWORD + hex( random.getrandbits( 128 ) )
     THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
 
-    BIN_VECTOR = array( 'L' )
+    BIN_VECTOR = array.array( 'L' )
     BIN_VECTOR.append( 0 )
 
     FP = os.fdopen( sys.stdout.fileno(), 'wb' )
 
+    # all the rest is testing
     if 'generate_random_table' in TEST_LIST :
         print( generate_random_table( THE_RNT.password_hash, 4096, 64 ) )
 
@@ -852,14 +818,14 @@ if __name__ == "__main__" :
     if 'prng_crypto' in TEST_LIST :
         # 3.41e+03 rands / second, very slow
 
-        N_PRNGS       = 19
-        INTEGER_WIDTH = 128
+        VECTOR_DEPTH   = 19
+        INTEGER_WIDTH  = 128
         PRNG_DEPTH     = 31
         PARANOIA_LEVEL = 1
         DIEHARDER_MAX_INTEGER   = ( 1 << 64 ) - 1
 
-        #( the_rnt, n_prngs, integer_width, vector_depth, paranoia_level )
-        THE_PRNG = PrngCrypto( THE_RNT, N_PRNGS, INTEGER_WIDTH, PRNG_DEPTH,
+        #( the_rnt, vector_depth, integer_width, vector_depth, paranoia_level )
+        THE_PRNG = PrngCrypto( THE_RNT, VECTOR_DEPTH, INTEGER_WIDTH, PRNG_DEPTH,
                                PARANOIA_LEVEL ) 
         sys.stderr.write( "THE_PRNG = " + str( THE_PRNG ) + '\n'  )
 
@@ -873,12 +839,12 @@ if __name__ == "__main__" :
 #            sys.stdout.write( hex( THE_RANDOM_NUMBER ) + '\n'  )
 
     if 'prng_crypto_rate' in TEST_LIST :
-        N_PRNGS       = 19
+        VECTOR_DEPTH       = 19
         INTEGER_WIDTH = 128
         PRNG_DEPTH     = 31
         PARANOIA_LEVEL = 1
         DIEHARDER_MAX_INTEGER   = ( 1 << 64 ) - 1
-        THE_PRNG = PrngCrypto( THE_RNT, N_PRNGS, INTEGER_WIDTH, PRNG_DEPTH,
+        THE_PRNG = PrngCrypto( THE_RNT, VECTOR_DEPTH, INTEGER_WIDTH, PRNG_DEPTH,
                                PARANOIA_LEVEL ) 
 
         print( 'prng crypto byte rate = ',
@@ -911,133 +877,13 @@ if __name__ == "__main__" :
 
     # more conservative tests would be to encrypt the same phrase again
     # and again.
-    if 'encode0' in TEST_LIST :
-        # this isn't as clean as encoding entirely text files, but I
-        # don't have a large source of just text.  First make it work
-        # with this, then on to plainer text.
-        #
-        # I believe that passing dieharder with a single text
-        # file repeatedly encrypted is a more stringent test than this,
-        # as binary files have more values possible per byte, and that
-        # would help to cover a weak pseudo-random NG.
-
-        THIS_CRYPTO = CRYPTO( 'this is a phrase', 'desktop', 1 )
-        ENCODE = THIS_CRYPTO.next()
-
-        DIR_LIST = [
-        '/home/lew/Downloads*.doc',
-        '/home/lew/Downloads*.pdf',
-        '/home/lew/Downloads*.sh',
-        '/home/lew/Downloads*.txt',
-        '/home/lew/Documents/*.doc',
-        '/home/lew/Documents/*.pdf',
-        '/home/lew/Documents/*.sh',
-        '/home/lew/Documents/*.txt',
-        '/home/lew/Desktop/Downloads*.doc'
-        '/home/lew/Desktop/Downloads*.pdf'
-        '/home/lew/Desktop/Downloads*.sh'
-        '/home/lew/Desktop/Downloads*.txt'
-        ] 
-        LOG_FILE = open( "evoprngs.log", "w" )
-        while True :
-            for THIS_DIR in DIR_LIST :
-                FILE_LIST = glob.glob( THIS_DIR )
-                for THIS_FILE in FILE_LIST :
-
-                    THIS_FILE_DATA = open( THIS_FILE, 'rb').read()
-                    print( THIS_FILE, len( THIS_FILE_DATA ) , len(
-                           THIS_FILE_DATA ) % 8 )
-
-                    #Make the file length an exact multiple of 8
-                    # this saves problems below, speeds this up
-                    # genuine encryption would be byte-by-byte.
-                    # this ignores an odd # of bytes at the end of the file
-                    MAX_BYTE_COUNT = len( THIS_FILE_DATA ) - \
-                                    len( THIS_FILE_DATA ) % 8
-
-                    THIS_FILE_BYTE_COUNT = 0
-                    while THIS_FILE_BYTE_COUNT < MAX_BYTE_COUNT :
-                        CIPH_WORD = 0
-
-                        PLAIN_BYTES = THIS_FILE_DATA[ THIS_FILE_BYTE_COUNT : 
-                                                  THIS_FILE_BYTE_COUNT + 8 ]
-                        THIS_FILE_BYTE_COUNT += 8
-
-                        if len( PLAIN_BYTES) == 0 :
-                            break
-
-                        RAND_INT = ENCODE.next( 64, 1 )
-                        PLAIN_INT = struct.unpack( "@Q", PLAIN_BYTES )[ 0 ]
-
-                        CIPH_WORD = PLAIN_INT ^ RAND_INT
-
-                        LOG_FILE.write( hex( CIPH_WORD ).encode( 'UTF-8' ) )
-                        BIN_VECTOR[ 0 ] = CIPH_WORD
-                        BIN_VECTOR.tofile( FP )
- 
-
-    if 'encode1' in TEST_LIST :
-        # this repeatedly encodes a single large text file.
-        # If dieharder can't detect regularities in the encoded message,
-        # the prng is OK. Because I already knew that from other tests,
-        # this merely proves that I didn't do xor wrong ;)
-        #
-        # 1 failed and 3 weak out of 19 tests is far too lousy, so
-        # either the xor is wrong (silly to consider, it is hardware)
-        # or there are regularities in encrypted files that are
-        # imposed by the regularites of the text.  OK, empirically
-        # true, or ?? Can't be, really can't be, and 2 moments thought
-        # proides a couple of other ideas.  But first, retest.
-        #
-        # HAve to run that test again, different passphrase.
-        # 
-        # very slow, 6.23K 64-bit values / second according to dieharder
-
-        # Don't need to decode this, just defeat dieharder.
-        # Password hash is the entropy for initializing the hash.
-        THIS_CRYPTO = CRYPTO( PASSPHRASE, 'desktop', 1 )
-        ENCODE = THIS_CRYPTO.next()
-
-        # I constructed this 11MB file from text files in a linux kernel
-        # directory.  I won't include it with the code because it might
-        # contain something owned by a client.
-        THE_FILE = "./TestText.txt"
-
-        THIS_FILE_DATA = open( THE_FILE, 'rb').read()
-
-        # Make the file length a multiple of 8
-        # This saves problems below, speeds this up
-        # genuine encryption would be byte-by-byte.
-        # This ignores an odd # of bytes at the end of the file
-        MAX_BYTE_COUNT = len( THIS_FILE_DATA ) - len( THIS_FILE_DATA ) % 8
-
-        while True :
-            THIS_FILE_BYTE_COUNT = 0
-            while THIS_FILE_BYTE_COUNT < MAX_BYTE_COUNT :
-                CIPH_WORD = 0
-
-                PLAIN_BYTES = THIS_FILE_DATA[ THIS_FILE_BYTE_COUNT : 
-                                              THIS_FILE_BYTE_COUNT + 8 ]
-                THIS_FILE_BYTE_COUNT += 8
-
-                if len( PLAIN_BYTES) == 0 :
-                    break
-
-                RAND_INT = ENCODE.next( 64, 1 )
-                PLAIN_INT = struct.unpack( "@Q", PLAIN_BYTES )[ 0 ]
-
-                CIPH_WORD = PLAIN_INT ^ RAND_INT
-
-#                    print( "ciph_word = ", hex( CIPH_WORD ) )
-                BIN_VECTOR[ 0 ] = CIPH_WORD
-                BIN_VECTOR.tofile( FP )
- 
-
+    # I eliminated encode 0 and 1 test, they were less stringent than encode2
 
     if 'encode2' in TEST_LIST :
         # encrypt the same phrase repeatedly, test result for randomness
         # Theoretically, this should be identical in result to a random test
         # of a CRYPTO PRNGenerator.
+        # MUST BE the same, this is simply making sure.
         THIS_CRYPTO = CRYPTO( PASSPHRASE, 'desktop', 1 )
         ENCODE = THIS_CRYPTO.next()
 
@@ -1047,8 +893,10 @@ if __name__ == "__main__" :
             while THIS_TEXT_BYTE_COUNT < len( THE_TEXT ) :
                 CIPH_WORD = 0
 
-                PLAIN_BYTES = THIS_FILE_DATA[ THIS_TEXT_BYTE_COUNT : 
-                                              THIS_TEXT_BYTE_COUNT + 8 ]
+                # embarassing bug found and removed from right here forever!
+                # Dumb!
+                PLAIN_BYTES = THE_TEXT[ THIS_TEXT_BYTE_COUNT : 
+                                        THIS_TEXT_BYTE_COUNT + 8 ]
                 THIS_TEXT_BYTE_COUNT += 8
 
                 if len( PLAIN_BYTES) == 0 :
@@ -1064,5 +912,47 @@ if __name__ == "__main__" :
                 BIN_VECTOR.tofile( FP )
  
 
+
+    if 'encode3' in TEST_LIST :
+
+        try :
+            LOG_FD   = open( 'Encode3.log', 'w' )
+
+        except IOError as the_error :
+            ERRNO, STRERROR = the_error.args
+            print( " error '" + STRERROR + "'" )
+            sys.exit( -2 )
+
+        evoutils.DEBUG_FD = open( 'Encode3_debug.log', 'w' )
+
+        # this matches the chat setup.
+        PASSPHRASE   = 'Fred'
+        SYSTEM_TYPE  = 'desktop'
+        SEND_CRYPTOS = CRYPTO( PASSPHRASE + 'serversend', SYSTEM_TYPE, 1 )
+        SEND_CRYPTO  = SEND_CRYPTOS.next()
+
+        LOG_FD.write( "\n" )
+        LOG_FD.write( str( SEND_CRYPTO ) )
+        LOG_FD.write( "\n" )
+
+
+        # TEST CODE TO FIGURE OUT THE encode/decode PROBLEM
+        TEST_MESSAGE = "from server\n"
+        LOG_FD.write( TEST_MESSAGE )
+
+        CIPHER_TEST_MESSAGE = SEND_CRYPTO.encrypt( TEST_MESSAGE, 1 )
+        print( 'cipher_test_message type = ', type( CIPHER_TEST_MESSAGE) )
+        LOG_FD.write( str( bytes( CIPHER_TEST_MESSAGE ) ) + '\n' )
+
+        # need to begin again to have the same state
+        SEND_CRYPTOS = CRYPTO( PASSPHRASE + 'serversend', SYSTEM_TYPE, 1 )
+        SEND_CRYPTO  = SEND_CRYPTOS.next()
+
+        CIPHER_TEST_MESSAGE = SEND_CRYPTO.decrypt( CIPHER_TEST_MESSAGE, 1 )
+        print( 'cipher_test_message type = ', type( CIPHER_TEST_MESSAGE) )
+        LOG_FD.write( CIPHER_TEST_MESSAGE + '\n' )
+
+        LOG_FD.flush()
+        # TEST CODE TO HERE
 
 

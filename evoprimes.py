@@ -187,7 +187,8 @@ def generate_large_prime(k):
     Beginning with random-within-a-range N, find the next prime.
     """
     #k is the desired bit length
-    r = 100 * ( math.log( k, 2 ) + 1 ) #number of attempts max
+    r = 200 * ( math.log( k, 2 ) + 1 ) #number of attempts max
+                                       # I needed 200
     r_ = r
     while r > 0:
         #randrange is mersenne twister and is completely deterministic

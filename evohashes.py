@@ -163,7 +163,7 @@ class HASH0( ) :
         """
         this_random = 0
         while this_random < the_bit_string :
-            this_random << 32
+            this_random <<= 16
             this_random += self.rnt.randint( 64 )
 
         # overkill
@@ -267,14 +267,24 @@ class HASH0( ) :
         for j in range( self.hash_depth ) :
             self.integer_vector[ j ] &= self.max_integer_mask
 
+    def next( self, bit_width, steps ) :
+        """
+        calculate a random number using the hash mechanism.
+        """
+        for _ in range( steps ) :
+            # Use next_index to select a hash element, that selects another
+            self.next_index += 1 
+            self.next_index %= self.hash_depth
+            new_index = self.integer_vector[ self.next_index ] % \
+                        self.hash_depth
+            # update the array with the full word.
+            self.update( self.integer_vector[ self.next_index ] )
+
+        return self.intdigest() & ( ( 1 << bit_width ) - 1 )
+
     def hexdigest( self ) :
         """
         returns a hexadecimal string of the xors of all integers in the vector
-
-        This is not symmetrical with the next( int_width ) functions
-        also used in encryption, but making it so breaks the concept of
-        'hash'. Thus, intdigest() and a function that uses it to produce
-        integer_width values.
         """
         return_value = 0
         for vector_index in range( self.hash_depth ) :
@@ -290,12 +300,16 @@ class HASH0( ) :
         """
         returns the integer value of the hash.  The integer is as wide
         as the integers making up the hash structure.
+
+        This intdigest is another xor, obliterating history and
+        predictability.
         """
         return_value = 0
         for i in range( self.hash_depth ) :
             return_value ^= self.integer_vector[ i ]
 
         return return_value
+
 
 class HASH1( HASH0 ) :
     """
@@ -462,6 +476,16 @@ class HASH2( HASH0 ) :
             self.integer_vector[ j ] &= self.max_integer_mask
 
 
+#
+# Another class of hash functions would use a set of prngs, step one or more
+# by input values and/or xor elements in the vectors with input values
+# and again the intdigest xors the last values of each of the recently
+# computed prngs, say 10 of them. 10 just for overkill.
+
+# Obviously, here are an infinite number of combinations, all
+# computationally equivalent wrt dieharder, and thus potential members
+# of this list. 
+#
 HASH_FUNCTIONS = [ HASH0, HASH1, HASH2 ]
 
 #SINGLE_PROGRAM_TO_HERE
@@ -501,7 +525,7 @@ if __name__ == "__main__" :
 
     # which ones need an '=' ?
     SHORT_ARGS = "f=hp=t="
-    LONG_ARGS  = [  'help' , 'file=', 'password=', 'test=' ]
+    LONG_ARGS  = [  'help', 'file=', 'password=', 'test=' ]
 
     TEST_LIST = []      # list of tests to execute
     PASSWORD  = ''      # not used so far, but prevents problems.
@@ -523,7 +547,7 @@ if __name__ == "__main__" :
             FILE_NAME = a
         
         if o in ( "--password" ) :
-             PASSWORD = a
+            PASSWORD = a
 
         if o in ( "--test" ) :
             TEST_LIST.append( a )
@@ -562,13 +586,25 @@ if __name__ == "__main__" :
 
             print( "The hash value returned = ", hex( HASH_VALUE ) )
 
-
+    # Tests the 'next()' function which allows a hash to be a prng.
     # latest results, with the initialization from the 4k_randoms
     # this is intentionally a small RNT
-    # 5.75e04 rands/second passes most through rgb_bitdist[ 11 ], 3 are
-    # weak one 'runs', one 'sts_serial', one rbg_bitdist
-    # weak should be 1/100, fail 1/1000.  So this is not a serious prng,
-    # in crypto terms.
+    # 3.09e04 rands/second passes most through rgb_bitdist[ 11 ], 0 are
+    # weak.
+    if 'next' in TEST_LIST :
+        # ( password, integer_width, hash_depth ) :
+        THE_HASH = HASH0( THE_RNT, 64, 31 )
+
+        NEW_UPDATE = int( THE_HASH.hexdigest(), 16 ) & 0xFF
+        
+        while 1 :
+            THE_RANDOM_NUMBER = THE_HASH.next( 64, 1 )
+
+            BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
+            BIN_VECTOR.tofile( FP )
+
+#            print( hex( THE_RANDOM_NUMBER ) )
+
     if 'new' or 'hash0' in TEST_LIST :
         # ( password, integer_width, hash_depth ) :
         THE_HASH = HASH0( THE_RNT, 64, 31 )

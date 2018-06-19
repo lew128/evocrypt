@@ -75,14 +75,16 @@ def debug( the_debug_message, debug_object, debug_level ) :
     if debug_level is None :
         debug_level = 1
 
-    if VERBOSITY_LEVEL > debug_level or VERBOSITY_LEVEL == debug_level :
+    if VERBOSITY_LEVEL > debug_level or \
+        VERBOSITY_LEVEL == debug_level :
         if debug_object is None :
             if DEBUG_FD :
                 DEBUG_FD.write( str( the_debug_message ) + "\n" )
                 if debug_level in [ 0, 1, 3 ] :
                     print( the_debug_message )
                     print( str( traceback.extract_stack() ) + "\n" )
-                    DEBUG_FD.write( str( traceback.extract_stack() ) + "\n" )
+                    DEBUG_FD.write( str( traceback.extract_stack())
+                                    + "\n" )
             else :
                 print( the_debug_message )
         else :
@@ -93,10 +95,12 @@ def debug( the_debug_message, debug_object, debug_level ) :
                     print( the_debug_message + " : '" + \
                         str( debug_object ) + "'\n" )
                     print( str( traceback.extract_stack() ) + "\n" )
-                    DEBUG_FD.write( str( traceback.extract_stack() ) + "\n" )
+                    DEBUG_FD.write( str( traceback.extract_stack())
+                                    + "\n" )
             else :
+                print( "No DEBUG_FD\n" )
                 print( "\n" + the_debug_message + " : '" + \
-                        str( debug_object ) + "'" )
+                       str( debug_object ) + "'" )
 #                print str( traceback.extract_stack() ) + "\n" )
 
     else :
@@ -166,7 +170,7 @@ if __name__ == "__main__" :
 
     try :
         OPTS, ARGS = getopt.getopt( sys.argv[ 1 : ], SHORT_ARGS,
-LONG_ARGS )
+                                    LONG_ARGS )
 
     except getopt.GetoptError as err :
         print( "getopt.GetoptError = '" + str( err ) + "'" )

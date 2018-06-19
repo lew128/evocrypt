@@ -1,14 +1,67 @@
 #!/usr/bin/python3
 
 import sys
+import os
+import io
+import filecmp
 import unittest
 import evornt
 
+from evocrypt import assemble_program_from_dev_files, generate_new_program, \
+check_name_against_hash, generate_random_array, replace_random_table, \
+encrypt_file, decrypt_file, crypt
+
+
+def chars_to_lines( text_as_chars ) :
+    """
+    I cannot make this work in the recommended ways.
+    """
+    this_line = ''
+    return_list = []
+    for i in range( len( text_as_chars ) ) :
+        this_char = text_as_chars[ i ]
+        if this_char == '\n' :
+#            print( "it was a carriage return" )
+            this_line += this_char
+#            print( this_line )
+            return_list.append( this_line )
+            this_line = ''
+        else :
+            this_line += this_char
+
+    return return_list
+
+def extract_rnt_from_text( text_as_lines ) :
+    """
+    returns the text of a random number table
+    """
+    return_text    = ''
+    n_k_found_flag = False
+    for this_line in text_as_lines :
+        if this_line == 'N_K_RANDOM_BYTES = [\n' :
+            n_k_found_flag = True
+            return_text += this_line
+            continue
+
+        if this_line == '    ] #END N_K_RANDOM_BYTES\n' :
+            return_text += this_line
+            return return_text
+
+        if n_k_found_flag :
+            return_text += this_line
 
 class TestEvoCrypt( unittest.TestCase ) :
 
-    def setUp( self ) :
+    def __init__( self ) :
 
+        self.the_assembled_program      = None
+        self.the_program_list           = None
+        self.the_generated_program_name = None
+
+    def setUp( self ) :
+        """
+        All the stuff needing done for every test.
+        """
         # instantiate a random number table
         # hard code desired RNT bytes and paranoia level for now
         self.the_rnt = RNT( 4096, 1, 'desktop', 'TestEvoFolds' )
@@ -16,105 +69,190 @@ class TestEvoCrypt( unittest.TestCase ) :
 #       SE = os.fdopen( sys.stderr.fileno(), 'wb' )
 
 
-
     def tearDown( self ) :
-
-    def test_replace_4K( self ) :
-        """ test the function in the context of the program.
-        """
-        THIS_PROGRAM = """
-
-import evohashes
-import evoprngs
-
-
-# This is the random number array maintained by RNT. and simulates the
-# one in RNT.
-
-FOUR_K_RANDOM_BYTES = [
-0X721A614B6C1C32C0,0X6F6EA721BF318B00,0X30B29952AA7A6F07,0XB8CEC23B4E423BD1,
-0X16E198C6DEB98C54,0X92DDBA4B5179C720,0X55AA3900E33EAEF0,0X1E8472171E55F19E,
-0XA98258446FC18757,0X401A7757E1E04228,0XC08756D3E4929978,0XFEB312D927880452,
-0X30AA0165E13A892C,0X61AA5AF433FF81C0,0XEE4788C2F8B2DC8A,0X3279550CEB9FB4A4,
-0XCFB43E585BC2E78E,0X3717F49C3AFE798A,0X2745D67141A8860B,0X1AB27578CA75A9B1,
-0X137937F86B36FC4D,0X3F104B940F2A7D1,0X4DB21F27731689A0,0X6CC76EF50E7AA38B,
-0X2DC3D16E23F541A4,0X2BCAD5CF063E6C76,0XA8A4B59B3C3CD5AC,0X46ECD827CAB0D4E,
-0XCC0FCF84FD677C09,0XE4F30943FD5F3416,0X30B1249789815E7A,0X3C8B8994897420F5,
-0X6327ABA3F74A0324,0XACEE06EC1E8F484E,0XE20E2396CBA37CFA,0XAF451806FC0005D1,
-0X436DCDFCFBFDB683,0X6172838B24C4B9DC,0X8F9BF0683948D8BB,0X3D9FE0873A06C499,
-0X600FD27AB8E46C97,0X673CE6E00D4CCE92,0XF50E544E15CB5343,0XECA9B1FB87552A01,
-0XB175CDD2476BAF3B,0X8641D89399C69103,0X66D9D080D365931B,0X7E9ACEE8C1AD9C09,
-0X384D360A845DE5BE,0X3B76F85FB948045F,0XA2F8B3CBDAA6F79B,0X3EAC17C722193D9,
-0XACDF68CC5C95F7F0,0X58FF384C30282F6E,0X80588F8FD343992,0XA87C2BBB28DDB9E1,
-0X826882EE42C381F1,0XB3F18A024A6EFE79,0XE5013C13DACA28A3,0X494E2881FB5B8562,
-]
-more program here
-"""
-
-        original_table = copy.deepcopy( self.the_rnt.rnt )
-
-        new_table = replace_4k_randoms( this_program, 'this is the pw' )
-
-        # Probabilistic, but 64 bits is a big #, should be OK
-        for i in range( int( 4096 / 16 ) ) :
-            self.assertFalse( original_table[ i ] == new_table[ i ] )
+        pass
 
     def test_assemble_program( self ) :
+        """
+        Test the function
+        """
         the_program = assemble_program_from_dev_files()
+        program_out = open( "test_evocrypt_assemble.test", "w" )
+        program_out.write( the_program )
+
+#        print( type( the_program ) )
+#        print( len( the_program ) )
+
+        text_list   = chars_to_lines( the_program )
+#        print( type( text_list ) )
+#        print( len( text_list ) )
 
         # does it pass the interpreter?
 
         # does it have one function from each of the files?
-        funtion_list = [ 'assemble_program_from_dev_files', ]
+        function_list = [ 'generate_new_program', 'LcgCrypto',
+        'FoldInteger', 'HASHES', 'rabin_miller', 'PRNGs', 'WichmannHill',
+        'close_files_and_exit' ]
+        
+        for this_function_name in function_list :
+            self.assertTrue( 'def '   + this_function_name in the_program or \
+                             'class ' + this_function_name in the_program,
+                             this_function_name )
 
-        for this_function in function_list :
+        self.the_assembled_program = the_program
+        self.the_program_list      = text_list
 
-            self.assertTrue( 'def ' + this_function_name in the_program )
+    def test_replace_4K( self ) :
+        """
+        test the function in the context of the program.
+        """
+        fred = "baloney\n"
+
+        original_table = extract_rnt_from_text( self.the_program_list )
+        original_table += '\noriginal_rnt = N_K_RANDOM_BYTES\n'
+
+        original_rnt   = []
+        exec( original_table, globals(), locals() )
+
+        new_program = replace_random_table( self.the_program_list,
+                                          'this is the pw', 4096 )
+        text_list      = chars_to_lines( new_program )
+        new_table      = extract_rnt_from_text( text_list )
+        new_table      += '\nnew_rnt = N_K_RANDOM_BYTES\n'
+
+        new_rnt        = []
+        exec( new_table, globals(), locals() )
+
+        # Probabilistic, but 64 bits is a big #, should be OK
+        for i in range( len( new_rnt ) ) :
+            self.assertFalse( original_rnt[ i ] == new_rnt[ i ] )
+
+        print( "test_replace_4K works" )
 
     def test_generate_new_program( self ) :
         """
         A new program should be identical to the current program,
         except for the RNT random number table and the lists,
         which are scrambled.
-        """
-        pass
 
-    def test_hash_the_file( self, file_name ) :
+        generate_new_program( password, this_file_name, new_file_name,
+                          array_size )
         """
-        Return the standard hash of the file.
-        """
-        self.assertTrue(  )
+
+        new_name = generate_new_program( "frederico",
+                                         "test_evocrypt_assemble.test",
+                                         "test_evocrypt_generate", 4096 )
+        self.the_generated_program_name = new_name
+
 
     def test_check_name_against_hash( self ) :
         """
         The hash value in base 16 is appended to the file name.  This
         makes sure they are consistent.
+
+        check_name_against_hash( this_file_name )
         """
-        self.assertTrue( initial_list[ i ] in scrambled_list,
-        ( "This value is not in the scrambled list", initial_list[ i ] ) )
+        check_name_against_hash( self.the_generated_program_name )
 
     def test_cryption( self ) :
         """
         Encrypts and decrypts this file, compares it to the original.
+
+        Encrypt and decrypt must be tested using an assembled program
+        because of the checking done.
+
+        So this can only test crypt.
+
+        encrypt_file( to_be_encrypted_file_name, password, system_type,
+                  paranoia_level ) :
+        
+        def encrypt_file( to_be_encrypted_file_name, password, system_type,
+                  paranoia_level ) 
         """
+        # this matches the chat setup.
+        passphrase     = 'Frederikco'
+        system_type    = 'desktop'
+        file_name      = 'test_file_small.txt'
+        paranoia_level = 1
+
+        # get the text
+        plaintext = open( file_name, 'r' ).read()
+        print( "len( plaintext ) = ", len( plaintext ) )
+        print( plaintext )
+
+        # Fake stdin and stdout for a bit
+        oldstdin   = sys.stdin
+        oldstdout  = sys.stdout
+        sys.stdin  = io.BytesIO( bytes( plaintext, 'utf-8' ) )
+        sys.stdout = io.BytesIO()
+
+        crypt( passphrase, system_type, paranoia_level )
+
+        # retrieve the ciphertext
+        sys.stdout.seek( 0 )
+        ciphertext = sys.stdout.read()
+        if len( ciphertext) == 0 :
+            sys.exit( 0 )
+
+        # ciphertext as stdin
+        sys.stdin  = io.BytesIO( ciphertext )
+        sys.stdout = io.BytesIO()
+
+        crypt( passphrase, system_type, paranoia_level )
+        
+        # retrieve the decoded text
+        sys.stdout.seek( 0 )
+        decoded_text = sys.stdout.read()
+        
+        # restore standard io
+        sys.stdin = oldstdin
+        sys.stdout = oldstdout
+
+#        print( type( plaintext ) )
+#        print( "type( ciphertext ) = ", str( type( ciphertext ) ) )
+#        print( "len( ciphertext ) = ",  str( len( ciphertext ) ) )
+#        print( decoded_text )
+
+        # check the decoded_text against the plaintext
+        self.assertTrue( len( plaintext ) == len( decoded_text ) )
+        decoded_text = decoded_text.decode( 'utf-8' )
+        for i in range( len( plaintext ) ) :
+            self.assertTrue( plaintext[ i ] == decoded_text[ i ],
+                             str( i ) + ' ' +
+                             plaintext[ i ] + ' ' + 
+                             decoded_text[ i ] )
 
     def test_final_acceptance( self ) :
         """
+        the final acceptance test
         """
         print( "test_final_acceptance" )
 
         the_rnt = RNT( 4096, 2, 'this is a passphrase' )
         self.assertTrue( the_rnt.password_hash != 0, "password has was zero" )
 
-        """
-        """
 
 if __name__ == '__main__':
-#    sys.path.append( '../' )
+# nothing I do allows accessing ../ python files from test/
+# they show up on the search line, but it doesn't help. There is some
+# other file I need to find.
     sys.path.insert( 0, '/home/lew/EvoCrypt' )
 
     import copy
     from evornt   import RNT
     from evocrypt import crypt
 
-    unittest.main()
+#    unittest.main()
+    TEST_EVOCRYPT = TestEvoCrypt()
+    TEST_EVOCRYPT.test_assemble_program()
+    print( "assemble\n" )
+    TEST_EVOCRYPT.test_replace_4K()
+    print( "replace\n" )
+    TEST_EVOCRYPT.test_generate_new_program()
+    print( "generate\n" )
+    TEST_EVOCRYPT.test_check_name_against_hash()
+    print( "check_name\n" )
+    TEST_EVOCRYPT.test_cryption()
+    print( "cryption\n" )
+
+

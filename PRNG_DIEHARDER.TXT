@@ -1,0 +1,106 @@
+
+This summarizes testing of the PRNGs with dieharder -a -g 200
+
+I copied the following command for all of the intentional tests.
+    ./evoprngs.py --password fred --test search \
+                  2> evoprngs_intentional_4.stderr | dieharder -a -g 200 > \
+                  intentional_4_non_random.dieharder \
+                  2> intentional_4_non_random.stderr
+
+This is the basic loop causing the problem in MA04.
+    self.counter += 1
+    if self.counter % 4 == 0 :
+        return_value = return_value & 0xffffffffffffff00 # too many
+
+The "search" series is the baseline, 7 weak, 0 fail of 458 tests
+
+The "intentional" series is increasingly lousy random series being
+produced to see what it takes to cause dieharder to fail.
+
+Intentional_1   0 weak  0 fail of  19 tests
+Intentional_2   1 weak  0 fail of  82 tests
+Intentional_3   0 weak  0 fail of  82 tests
+Intentional_4   5 weak  0 fail of  82 tests
+
+Intentional_5   3 weak  0 fail of  76 tests
+ # %16
+
+Intentional_6   2 weak  0 fail of 114 tests
+ # %12
+
+Intentional_7   1 weak  0 fail of  64 tests
+ # %8
+Intentional_8   2 weak  0 fail of  64 tests
+  # intentional_8 1 of 8 and % 8, so 2x more flaws than 7
+
+Intentional_9  23 weak 24 fail of 114 tests
+# 1 MA04 for 3 MA03s, 1M integers each and in every 3rd number is 0x00
+# in the low byte for MA04
+
+Intentional_10  6 weak  5 fail of 114 tests
+# MA04 1/16 times rather than 1/7
+
+Intentional_11  5 weak  3 fail of 114 tests
+# MA04 1/32 times
+
+Notes don't tell me what the conditions were for this
+Intentional_12  3 weak  4 fail of 114 tests
+
+Intentional_13  3 weak  1 fail of 114 tests
+    # counter set at 10M so longer runs from one PRNG
+    # This reveals the weakness.
+
+Summary is that MA04 has to be called often and produce a high rate of
+non-random lower bytes to be detected as non-random by dieharder.
+1M randoms / pair of multiply-addition values does not see problem as quickly.
+
+Notes :
+  I have been testing to be sure all these pairs of prime numbers
+  produce randomness. Turns out, dieharder isn't sensitive enough to
+  be sure, but out of 1.8M pairs, only 14 were not unique, so the
+  basic mechanism is OK and produces PRNs acceptable to dieharder.
+
+  $ wc lew.sorted           8284438   8284438 169830979 lew.sorted
+  $ wc lew.sorted_unique    8284370   8284370 169829571 lew.sorted_unique
+
+    68 / 8,284,438 random integers is 8 in a million collisions 
+    The range 0 1 << 48 bits is 256*1024*1024*1024*1024
+    of which I used only 40%.
+    
+    .4 * 256T / 8,284,438 = 13,590,540, 1 over 13.6M is the fraction of
+        the total multiplier and addition space these tests produced.
+    8 duplicates of one or the other per million (probably the pair, but I
+    am not sure I can find that in the files) is clearly far too high
+    for so few pairs of numbers, but is livable. I need to work on that
+    mechanism, but not yet.
+
+
+I have 48 'intentional' dieharder files with 1917 PASSED tests, 38 FAILED and 66
+WEAK.
+
+Of those, I have 5 'search' files that should produce no errors.
+451 PASSED, 0 FAILED, 7 WEAK. That is slightly higher than 1/100 WEAK,
+but acceptable. Of course, 1M randoms per pair of multiplier-addiion, so
+it isn't easy for dieharder to detect the non-randoms.
+
+Easy to build that into the next function, change the constants every 1M
+outputs.
+
+-----------
+
+Of 14 tests with the most recent version, 2 failures, 29 weak, 1629 PASSED
+Failures were lp5 and next_random_value, they had no WEAK tests.
+
+Other WEAK tests :
+dieharder.cmwc4096-28Apr2018 5 WEAK
+dieharder.knuth-01May2018    2 WEAK
+dieharder.newlib-28Apr2018   5 WEAK
+dieharder.well512-01May2018  1 WEAK
+evofolds_xadd0_04May2018.dieharder 3 WEAK
+evofolds_xadd1_05May2018.dieharder 5 WEAK
+evofolds_xor0_04May2018.dieharder  3 WEAK
+evofolds_xor1_05May2018.dieharder  2 WEAK
+evoprngs_lp256_16May2018.dieharder 3 WEAK
+
+
+
