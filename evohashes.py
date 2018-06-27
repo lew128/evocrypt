@@ -36,7 +36,7 @@ import copy
 #
 # The goal is to have many hashes, not just what is in python hashlib.
 #
-# Add more hash functions in this section, before the list
+# Add more hash functions in this section, then add them to the list
 #
 
 class HASHES() :
@@ -53,9 +53,8 @@ class HASHES() :
         This is the general hash, invoking specific hashes from the function
         list.
         """
-        self.hash_functions  = [ HASH0, HASH1 ]
+        self.hash_functions  = HASH_FUNCTIONS
         self.next_hash_index = 0
-#        self.entropy_bits    = rnt.password_hash
         self.rnt             = rnt
         self.integer_width   = integer_width
         self.hash_depth      = hash_depth
@@ -132,12 +131,16 @@ class HASH0( ) :
         restoring the vector's in the user's space rather than this
         inside-the-hash space. I can't quite see a use, but it seems
         right, a building block I can make structures out of.
+
+        No use yet, so I haven't done this.
         """
         self.backup_vector = copy.deepcopy( self.integer_vector )
 
     def restore_int_vector( self ) :
         """
         Restore the original vector.
+
+        Never used.
         """
         self.integer_vector = copy.deepcopy( self.backup_vector )
         
@@ -176,7 +179,8 @@ class HASH0( ) :
 
     def update( self, the_update ) :
         """ 
-        Mixes the value into the array of aits.
+        Mixes the value into the array of integers, state values for the
+        hash function..
         Problem of types, this handles strings and integers and arrays
         of strings and integers.
 
@@ -278,7 +282,7 @@ class HASH0( ) :
             new_index = self.integer_vector[ self.next_index ] % \
                         self.hash_depth
             # update the array with the full word.
-            self.update( self.integer_vector[ self.next_index ] )
+            self.update( self.integer_vector[ new_index ] )
 
         return self.intdigest() & ( ( 1 << bit_width ) - 1 )
 

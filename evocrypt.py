@@ -648,7 +648,7 @@ def crypt( password, system_type, paranoia_level ) :
     """ 
 
     the_rnt       = RNT( 4096, paranoia_level, system_type, password )
-#   sys.stderr.write( "password hash = " + hex( the_rnt.password_hash ) + '\n' )
+    sys.stderr.write( "password hash = " + hex( the_rnt.password_hash ) + '\n' )
 
     the_crypto    = CRYPTO( password, system_type, paranoia_level )
     crypt_it      = the_crypto.next()

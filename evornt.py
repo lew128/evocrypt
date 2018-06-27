@@ -599,11 +599,10 @@ class RNT() :
         # There are initializations of hashes and levels of PRNGs still
         # ahead, and they use the accumulated entropy to compute more entropy 
         # from the table, which maybe be made very large for extreme
-        # paranoia levels.  Not because it is more secure, rather
-        # because it will be obvious what size of system is being used,
-        # another security check.
+        # paranoia levels.
 
-        # Once you have a random bit string, the cipher is unbreakable.
+        # Once you have a random bit string, the cipher is unbreakable
+        # so long as you don't re-use the bit-string.
 
 
     def new_rnt( self, entropy_bits, desired_table_size_in_bytes ) :
@@ -703,6 +702,7 @@ class RNT() :
 
         This should be another function list mechanism, with randomization.
         """
+        assert( field_width > 0 )
 
         self.randint_function += 1
 
@@ -891,7 +891,7 @@ class RNT() :
             self.hash.update( entropy_bits )
             return_integer ^= self.hash.intdigest()
 
-        return return_integer     
+        return return_integer & ( 1 << integer_width ) - 1
             
 
     def scramble_list( self, the_list ) :

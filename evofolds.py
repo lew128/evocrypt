@@ -85,8 +85,8 @@ class FoldInteger() :
     
         the_mask = ( 1 << bit_width ) - 1
     
-        out_value ^= to_be_folded_value & the_mask
-        to_be_folded_value = to_be_folded_value >> bit_width
+#        out_value ^= to_be_folded_value & the_mask
+#        to_be_folded_value = to_be_folded_value >> bit_width
     
         while to_be_folded_value > 0 :
             out_value ^= to_be_folded_value & the_mask
@@ -106,8 +106,8 @@ class FoldInteger() :
     
         the_mask = ( 1 << bit_width ) - 1
     
-        out_value ^= to_be_folded_value & the_mask
-        to_be_folded_value = to_be_folded_value >> bit_width
+#        out_value ^= to_be_folded_value & the_mask
+#        to_be_folded_value = to_be_folded_value >> bit_width
     
         while to_be_folded_value > 0 :
             out_value ^= to_be_folded_value & the_mask
@@ -119,8 +119,8 @@ class FoldInteger() :
     
         return out_value
     
-    # add0 and add1 did not work.
-    
+    # I am suspicious of the adds for producing too many 1 bits
+    # will take them out for a test of LcgCrypto
     def fold_xor_add0( self, to_be_folded_value, bit_width ) :
         """
          Uses xor and add of N-bit values beginning at the right end to fold
@@ -132,8 +132,8 @@ class FoldInteger() :
     
         the_mask = ( 1 << bit_width ) - 1
     
-        out_value ^= to_be_folded_value & the_mask
-        to_be_folded_value = to_be_folded_value >> bit_width
+#        out_value ^= to_be_folded_value & the_mask
+#        to_be_folded_value = to_be_folded_value >> bit_width
     
         while to_be_folded_value > 0 :
             if out_value & 0x01 :
@@ -155,14 +155,15 @@ class FoldInteger() :
     
         the_mask = ( 1 << bit_width ) - 1
     
+        # one full-width component first
         out_value ^= to_be_folded_value & the_mask
         to_be_folded_value = to_be_folded_value >> bit_width
     
-        while to_be_folded_value > 0 :
-            # a first simple variation
-            if bit_width > 4 :
-                bit_width -= 1
+        # a first simple variation
+        if bit_width > 4 :
+            bit_width -= 1
     
+        while to_be_folded_value > 0 :
             if out_value & 0x01 :
                 out_value ^= to_be_folded_value & the_mask
             else :
@@ -320,6 +321,7 @@ if __name__ == "__main__" :
             THE_RANDOM_NUMBER = THE_HASH.intdigest()
 
             FOLDED_VALUE = THE_FOLD.fold_xor0( THE_RANDOM_NUMBER, 64 ) 
+
 
             BIN_VECTOR[ 0 ] = FOLDED_VALUE
             BIN_VECTOR.tofile( SO )

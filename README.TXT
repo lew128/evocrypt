@@ -587,5 +587,8 @@ of a pair and the other which decrypts the important, sensitive message.
 
 There needs to be a signal at the beginning of the file which password
 decodes which message, innocuous, a good reason for it in the format.
+Must be a common encoder for both systems intermixing the cipher
+streams.
 
-So use a common prng to decide how many of your own characters to insert
+So use a common prng to decide how many of your own characters to
+insert, and then turn writing over to the other thread.

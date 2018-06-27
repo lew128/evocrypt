@@ -29,7 +29,6 @@ import os
 import sys
 import getopt
 import random
-import glob
 import struct
 import array
 import evoutils
@@ -83,18 +82,18 @@ class CRYPTO :
     both sides have to be using the same choices, or you can't
     communicate.
     """
-    # this returns tuples of n_vectors, integer_width, 'vector_size'
+    # this returns tuples of n_prngs, integer_width, 'vector_size'
     # This is easily changed or extended without touching the code.
-    # But this is vast overkill and could be counter-productive. Who has
-    # explored the internal dynamics of multiplying and adding very large
-    # integers?
+    # But this is vast overkill.
+
     # The basics of information processing mandates that folding such
     # large integers down to 64-bits hides the mechanism producing the
     # PRNG extremely well. That is in addition to the opacifying mechanism
     # of one PRNG choosing bits from an ensemble of others to make up the
     # CryptoPRNG. After the # of subsidiary PRNGs is > than 1 + the
     # number of bits in the required output (normally a byte), the
-    # excess are in the way (I need to think how to use them, elegantly)
+    # excess are just a larger state to be determined by an attacker.
+
     system_paranoia = { 
         'big'        : { 1 : ( 19, 256, 31 ),
                          2 : ( 31, 256, 41 ),
@@ -124,7 +123,7 @@ class CRYPTO :
 
         self.system_type       = system_type
         self.paranoia_level    = paranoia_level
-        self.n_vectors, self.integer_width, self.vector_depth = \
+        self.n_prngs, self.integer_width, self.vector_depth = \
             self.system_paranoia[ system_type ][ paranoia_level ]
 
         self.crypto_functions = [ LcgCrypto, HashCrypto, PrngCrypto ]
@@ -151,24 +150,9 @@ class CRYPTO :
         self.next_crypto_index += 1
         self.next_crypto_index %= len( self.crypto_functions )
 
-        return  this_crypto( self.the_rnt, self.n_vectors,
+        return  this_crypto( self.the_rnt, self.n_prngs,
                              self.integer_width, self.vector_depth,
                              self.paranoia_level )
-
-
-# I will replace all of these specialized crypto functions with a single
-# function that uses a random set of PRNGs. I was intending to produce
-# a class to do that, didn't see that it replaces these two.
-# OTOH, random is random. Finally, however, the deciding point is always
-# that multiple functions make the attacker's problem exponentially
-# harder. However good NSA's cryptographers are, randomly random is hard
-# to crack.
-
-# This next will be base of the CRYPTO class. 
-
-# 2 steps to that structure, first write the general CPRNG class from
-# the LgcCrypto, then make it the base class.
-
 
 class LcgCrypto() :
     """
@@ -180,11 +164,11 @@ class LcgCrypto() :
     This uses randomly chosen primes for the two constants, and
     increasing primes for the lags to produce the longest cycles.
 
-    I don't know where I got this algorithm, but I can't find a ref.
+    I don't know where I got this algorithm, and I can't find a ref.
     It seems a genealization of the idea behind the LCG, but ...
     """
 
-    def __init__( self, the_rnt, n_vectors, prng_bit_width, vector_depth,
+    def __init__( self, the_rnt, n_prngs, prng_bit_width, vector_depth,
                   paranoia_level ) :
         """
         Initializes N LCGs of bit_width and vector_depth.
@@ -213,14 +197,17 @@ class LcgCrypto() :
         messages are 15K bytes?
         """
 
-        self.entropy_bits        = the_rnt.password_hash
         self.the_rnt             = the_rnt
-        self.n_vectors           = n_vectors
         self.integer_width       = prng_bit_width
+        if self.integer_width <= 32 :
+            self.n_prngs = get_next_higher_prime( n_prngs * 4 )
+        else :
+            self.n_prngs = n_prngs
+        print( "self.n_prngs = ", self.n_prngs )
         self.vector_depth        = vector_depth
         self.paranoia_level      = paranoia_level
 
-        self.bit_selection_mask  = prng_bit_width - 1
+#        self.bit_selection_mask  = prng_bit_width - 1
         self.next_prng           = 0
         self.max_integer_mask    = ( 1 << prng_bit_width ) - 1
         self.max_integer         =   1 << prng_bit_width
@@ -229,6 +216,7 @@ class LcgCrypto() :
         self.prng_vector         = []
 
         self.the_fold            = FoldInteger( )
+        self.entropy_bits        = the_rnt.password_hash
 
 
         # hash_depth should be differently different than vector_depth
@@ -236,13 +224,15 @@ class LcgCrypto() :
         hashes = HASHES( the_rnt, self.integer_width, self.vector_depth )
         the_hash = hashes.next()
 
-        hash_of_passphrase = the_hash.intdigest()
+        the_hash.update( str( n_prngs ) + str( prng_bit_width ) + 
+                         str( vector_depth ) + str( paranoia_level ) )
+        hash_of_state = the_hash.intdigest()
 
         # small enough it doesn't mis-order the numbers, large enough
         # it won't be close to the calculated value
         fold_width = int( prng_bit_width *.6 )
-        folded_hash_of_passphrase = \
-            self.the_fold.fold_it( hash_of_passphrase, fold_width )
+        folded_hash_of_state = \
+            self.the_fold.fold_it( hash_of_state, fold_width )
             
         # multipliers and additive constants :
         # need 2 series of primes a good distance apart, say the low
@@ -250,17 +240,17 @@ class LcgCrypto() :
         # beginning 60% to 90% We need N of each.
         # This is predictable from standard integer widths, so we also need the
         # entropy mixed into this.
-        current_max = ( self.entropy_bits + folded_hash_of_passphrase ) % \
+        current_max = ( self.entropy_bits + folded_hash_of_state ) % \
                         int( self.max_integer * .9 )
-        current_min = ( self.entropy_bits + folded_hash_of_passphrase ) % \
+        current_min = ( self.entropy_bits + folded_hash_of_state ) % \
                         int( self.max_integer * .1 )
 
-        # 1/Nth of 30% of the total range
-        delta        = int( ( current_max * .3 ) / self.vector_depth )
+        # 1/Nth of 30% of the total range >> 4
+        delta        = int( ( current_max * .3 ) / self.n_prngs ) >> 4
 
-        lag = 7   # initial lag.  Even if the primes become > vector_depth, it
-                  # is OK because that wraps around the vector.
-        for i in range( self.vector_depth ) :
+        lag = 7   # initial lag.  Even if the primes become > n_prngs, it
+                  # is OK because that wraps around the set.
+        for i in range( self.n_prngs ) :
             multiplier   = get_next_higher_prime( current_max )
             constant     = get_next_higher_prime( current_min )
             lag          = get_next_higher_prime( lag )
@@ -276,7 +266,7 @@ class LcgCrypto() :
             lag         += 2
             delta        = get_next_higher_prime( delta )
 
-        for i in range( self.vector_depth ) :  
+        for i in range( self.n_prngs ) :  
             # steps should be dependent on pw
             steps = self.the_rnt.password_hash % 64
             self.prng_vector[ i ].next( 8, steps )
@@ -303,21 +293,23 @@ class LcgCrypto() :
 
         # We want an index into the bit-width bits, which must be less than
         # bit_width.  That is a power of 2, of course.
-        bit_selection_mask = bit_width - 1
+#        bit_selection_mask = bit_width - 1
         return_integer = 0
-        self.next_prng %= ( self.vector_depth - 1 )
+        self.next_prng %= ( self.n_prngs - 1 )
         for _ in range( steps ) :
             for bit_index in range( bit_width ) :
-    
                 # bit is selected by the last prng in the vector
+                # this makes this a crypto-prng
                 selected_bit_index = \
-                            self.prng_vector[ self.vector_depth - 1 ].next(
-                                bit_width, 1 ) &  bit_selection_mask 
-    
+                                self.prng_vector[ self.n_prngs - 1 ].next(
+                                    bit_width, 1 ) %  bit_width
+                                    # bit_selection_mask 
+        
                 lcg_value = \
-                    self.prng_vector[ self.next_prng ].next( bit_width, 1 )
+                        self.prng_vector[ self.next_prng ].next( bit_width,
+                                                                 steps )
                 self.next_prng += 1
-                self.next_prng %= ( self.vector_depth - 1 )
+                self.next_prng %= ( self.n_prngs - 1 )
     
                 # shift a bit to the selected bit index
                 bit_mask = 1 << selected_bit_index
@@ -325,14 +317,27 @@ class LcgCrypto() :
                 # mask to select the bit value
                 selected_bit_value = lcg_value & bit_mask
     
-                # shift the selected bit to the 0th position
-                bit_value = selected_bit_value >> selected_bit_index 
+                # shift the bit to fit it into the bit_index bit
+                # position in the new word
+                # selected 0 bit_index 0 shift right 0
+                # selected 0 bit_index 5 shift  left 5
+                # selected 5 bit_index 0 shift right 5
+                # selected 5 bit_index 3 shift right 2
+                # selected 3 bit_index 5 shift  left 2
+
+                shift_distance = selected_bit_index - bit_index
+                if shift_distance > 0 :
+                    return_integer ^= selected_bit_value >> shift_distance
+                else :
+                    return_integer ^= selected_bit_value << -shift_distance
     
-                # put the unshifted bit into the return byte
-                return_integer |= ( bit_value << bit_index )
-    
+#                print( "i : ", hex( return_integer ) )
+
         self.total_cycles += steps
-        return return_integer & ( ( 1 << bit_width ) - 1 )
+#        print( hex( return_integer ) )
+#        sys.stdout.flush()
+         # The integer is bit_width * steps wide
+        return ( self.the_fold.fold_it( return_integer, bit_width ) )
 
 
     def dump_state( self ) :
@@ -417,6 +422,8 @@ class HashCrypto( LcgCrypto ) :
     """
     Uses the set of hashes to produce a crypto-quality pseudo-random number.
 
+    The data structure is a vector of hash instantiations.
+
     Individual hash functions may be relatively weak wrt dieharder (but
     not the functions I provide), but very strong when considered as an
     ensemble.
@@ -430,85 +437,116 @@ class HashCrypto( LcgCrypto ) :
 
     54827.50326797386 bytes / second, 5x faster than PrngCrypto
     """
-    def __init__( self, the_rnt, n_vectors, integer_width, vector_depth,
+    def __init__( self, the_rnt, n_prngs, integer_width, vector_depth,
                   paranoia_level ) :
         """
         initializes N LCGs 
         """
-        LcgCrypto.__init__( self, the_rnt, n_vectors, integer_width,
+        LcgCrypto.__init__( self, the_rnt, n_prngs, integer_width,
                             vector_depth, paranoia_level )
         self.bit_selection_mask   = integer_width - 1
-        self.next_integer            = 0
+        self.next_hash            = 0
 
         self.total_cycles         = 0
         self.hash_function_vector = []
 
         self.the_fold              = FoldInteger()
 
-        hash0 = HASHES( the_rnt, integer_width, vector_depth )
-        for i in range( len( hash0.hash_functions ) ) :
-            self.hash_function_vector.append( hash0.next() )
+        # fill the hash_function_vector with instantiated hash functions
+        the_hashes = HASHES( the_rnt, integer_width, vector_depth )
+        for i in range( n_prngs) :
+            self.hash_function_vector.append( the_hashes.next() )
             
-        # make all of the integer_vectors the same vector
-        self.the_integer_vector = self.hash_function_vector[ 0 ].integer_vector
-        for i in range( len( self.hash_function_vector ) ) :
-            self.hash_function_vector[ i ].integer_vector = \
-                                                        self.the_integer_vector
-
-        # update the single integer_vector with every algorithm
+        # update the integer_vector for every function
         for i in range( len( self.hash_function_vector ) ) :
             self.hash_function_vector[ i ].update(
                 the_rnt.password_hash * i + i )
                                        
         # initial steps should be dependent on the password
-        self.next( 64, self.the_rnt.password_hash % 64 )
+        self.next( 32, self.the_rnt.password_hash % 64 )
+
+#        print( "HashCrypto init = ", n_prngs, integer_width, vector_depth,
+#               paranoia_level )
 
     def next( self, bit_width, steps ) :
         """
         Returns the xors of steps random numbers in the next_integer
         positions, masked to bit_width.
+
+        This consistently has one duplicate at 32-bits.
+
+        So I started the 'hash32' dieharder test about 9AM WEd 27 June
+        and also the mods to test_evoprngs.py's checkfunction routine so
+        the sample size is 16 * 1024 * 1024. That got through generating
+        16 M randoms about 10AM, and has been working on checking
+        duplicates ever since. No dups yet.
+        
+        Will let that run indefinitely, every hour gives me more info about
+        the quality of hash32 as a prng. I nearly always let the
+        dieharder tests run to completion, I currently have ultra-slow tests
+        from 21 May and 9 June.
         """
 
-        # the prng integer_width must be >= bit_width, or bad crypto
-        assert bit_width <= self.integer_width
+#        print( "bit_width = ", bit_width )
+#        print( "self.integer_width = ", self.integer_width )
 
+        # the prng integer_width must be >= bit_width, or bad crypto
+        # this is necessary because it is a dumb algorithm
+        # how can the order of these make a difference in the comparison
+        # result?
+#        assert( self.integer_width <= bit_width )
+
+#        print( "self.n_prngs = ", self.n_prngs )
         return_value = 0
         for i in range( steps ) : 
-            self.next_integer = ( self.vector_depth + 1 ) % self.vector_depth
+            while return_value < 1 << bit_width :
+                sys.stdout.flush()
+                return_value = return_value << int( bit_width / 4 )
+                self.next_hash = ( self.n_prngs + 1 ) % self.n_prngs
 
-            # if the application uses prime values for the depth, any
-            # number will do.  Otherwise, 3 and 7 are at least relatively-prime
-            rnt_addr0 = ( self.next_integer + i +  3 ) % self.vector_depth
-            rnt_addr1 = ( self.next_integer + i + 11 ) % self.vector_depth
+                # if the application uses prime values for the depth, any
+                # number will do.  Otherwise, 3 and 7 are at least rel-prime
+                rnt_addr0 = ( self.next_hash + i + 3 ) % self.vector_depth
+                rnt_addr1 = ( self.next_hash + i + 7 ) % self.vector_depth
+#                print( "rnt_addr1 = ", rnt_addr1 )
+                sys.stdout.flush()
 
-            # the hash update is the slow part. RNT is to prevent cycles
-            update_value  = self.the_integer_vector[ rnt_addr0 ]
-            update_value += self.the_rnt.next_random_value(
-                            self.the_integer_vector[ rnt_addr1 ],
-                                                    self.integer_width )
+#                print( "len( self.hash_function_vector ) = ",
+#                        len( self.hash_function_vector ) )
 
-            # fold to 32 bits, probably still overkill
-            four_byte_update = 0
-            while update_value != 0 :
-                # another link in the code breaker's logic chains
-                # costs a test and branch, nearly nothing.
-                if update_value & 0x01 :
-                    four_byte_update ^= update_value & 0xFFFFFFFF
-                else :
-                    four_byte_update += update_value & 0xFFFFFFFF
-                update_value >>= 32
+#                print( "len( self.hash_function_vector ) = ",
+#                        len( self.hash_function_vector ) )
+                this_hash = self.hash_function_vector[ self.next_hash ]
 
-            self.hash_function_vector[ i % len( self.hash_function_vector ) ].\
-                                                    update( four_byte_update )
+#                print( "len( this_hash.integer_vector ) = ",
+#                        len( this_hash.integer_vector ) )
+                # I don't like reaching into the hash's data structures
+                update_value  = this_hash.integer_vector[ rnt_addr0 ]
+                entropy_bits = this_hash.integer_vector[ rnt_addr1 ]
+                # the hash update is the slow part. RNT is to prevent cycles
+                update_value += self.the_rnt.next_random_value( entropy_bits,
+                                                            self.integer_width )
 
-            # the new hash value becomes the next element of the prng vector
-            new_value = self.hash_function_vector[ i % len( 
-                                self.hash_function_vector ) ].intdigest()
-            self.the_integer_vector[ self.next_integer ] ^= new_value
+                # fold to 32 bits, probably still overkill
+                four_byte_update = 0
+                while update_value != 0 :
+                    # another link in the code breaker's logic chains
+                    # costs a test and branch, nearly nothing.
+                    if update_value & 0x01 :
+                        four_byte_update ^= update_value & 0xFFFFFFFF
+                    else :
+                        four_byte_update += update_value & 0xFFFFFFFF
+                    update_value >>= 32
 
-            return_value ^= new_value
-            
-        return return_value & ( ( 1 << bit_width ) - 1 )
+                # update this_hash function
+                this_hash.update( four_byte_update )
+
+                # this could take a while for a wide request vs narrow
+                # hashes, but that would be a misuse, so this is OK.
+                return_value += this_hash.intdigest()
+
+        return self.the_fold.fold_it( return_value, bit_width )
+#        return return_value & ( 1 << bit_width ) - 1
 
 
 class PrngCrypto( LcgCrypto ) :
@@ -519,27 +557,32 @@ class PrngCrypto( LcgCrypto ) :
     Algorithm is to use N PRNGs, with the last PRNG selecting the particular
     bits from the others.
 
+    All of the PRNGs have a uniform interface, whether they use all the
+    arguments or not.
+
     This uses randomly chosen primes for the two constants, and
     increasing primes for the lags, thus to produce the longest cycles.
 
     This is very slow even on my serious system : 11088 bytes/ second.
 
-    This should use the hashes, also, but it will require a next
-    function.
+    This should use the hashes, also, but those will require a different
+    interface and the next function.
     """
 
-    def __init__( self, the_rnt, n_vectors, integer_width, vector_depth,
+    def __init__( self, the_rnt, n_prngs, integer_width, vector_depth,
                   paranoia_level ) :
         """
         Initializes N PRNGs of bit_width and vector_depth.
 
-        The goal is to calculate and set the tuple ( seed, int_width,
-        lcg_array_size, multiplier, constant, lag ) for each LCD instantiated.
+        The goal is to calculate and set the tuple ( RNT, int_width,
+        lcg_array_size, multiplier, constant, lag ) for each PRNG instantiated.
+        All PRNG algorithms may not use all of them, but the interfaces
+        are uniform.
 
             lcg_array_size is the # of prng_bit_width integers in the array.
 
-            prng_bit_width is bits in the intgers. It must be a power of
-            2 for this code to work because of the calculation of the
+            prng_bit_width is bits in the intgers. This integer must be a power
+            of 2 for this code to work because of the calculation of the
             bit-selection mask.
             
             The values of multiplier, constants and lag are calculated.
@@ -550,14 +593,17 @@ class PrngCrypto( LcgCrypto ) :
             Discussions say they only need be relatively prime, this makes
             them a prime.
  
-            The lag is prime and also different across the N arrays to prevent
-            short cycles.
+            The lag is prime and also different across the N arrays as
+            yet another mechanism to prevent short cycles.
 
         """
 
-        LcgCrypto.__init__( self, the_rnt, n_vectors, integer_width,
+        LcgCrypto.__init__( self, the_rnt, n_prngs, integer_width,
                             vector_depth, paranoia_level )
 #        sys.stderr.write( "__init__ prngCrypto\n" )
+
+        self.vector_depth        = vector_depth
+
         self.entropy_bits        = the_rnt.password_hash
 
         self.bit_selection_mask  = integer_width - 1
@@ -566,21 +612,20 @@ class PrngCrypto( LcgCrypto ) :
         self.max_integer         =   1 << integer_width
 
         self.total_cycles        = 0
-        self.prng_set            = []
+        self.prng_set            = [] # will be n_prngs in the set
 
         self.the_fold            = FoldInteger( )
 
-        # n_vectors should be differently different than vector_depth
+        # n_prngs should be differently different than vector_depth
         hashes = HASHES( the_rnt, self.integer_width, self.vector_depth )
         the_hash = hashes.next()
 
-        hash_of_passphrase = the_hash.intdigest()
+        # initialized, but no update is sort of OK
+        hash_of_state = the_hash.intdigest()
 
-        # small enough it doesn't mis-order the numbers, large enough
-        # it won't be close to the calculated value
-        fold_width = int( integer_width *.6 )
-        folded_hash_of_passphrase = \
-            self.the_fold.fold_it( hash_of_passphrase, fold_width )
+        # an additional bit of randomness
+        folded_hash_of_state = \
+            self.the_fold.fold_it( hash_of_state, int( integer_width * .6 ) )
             
         # multipliers and additive constants :
         # need 2 series of primes a good distance apart, say the low
@@ -590,23 +635,25 @@ class PrngCrypto( LcgCrypto ) :
         # entropy mixed into this.
         # the square of entropy_bits is necessary for it to be large
         # enough for the mod to do something.
-        current_max = ( self.entropy_bits**2  + folded_hash_of_passphrase ) % \
+        # current_max steps from high to low, current_min the reverse
+        current_max = ( self.entropy_bits**2  + folded_hash_of_state ) % \
                         int( self.max_integer * 0.9 )
-        current_min = ( self.entropy_bits**2  + folded_hash_of_passphrase ) % \
+        current_min = ( self.entropy_bits**2  + folded_hash_of_state ) % \
                         int( self.max_integer * 0.1 )
 
         # 1/Nth of 30% of the total range
-        delta        = int( ( current_max * .3 ) / self.vector_depth )
+        delta        = int( ( current_max * .3 ) / self.n_prngs )
 
-        lag = 7   # initial lag.  Even if the primes become > vector_depth, it
-                # is OK because that wraps around the vector.
+        lag = 7   # initial lag.  Even if the primes become > n_prngs,
+                  # it is OK because that wraps around the vector.
         prngs = PRNGs()
-        for i in range( self.vector_depth ) :
+        for i in range( n_prngs ) :
+            # this loop instantiates the prngs
             if current_max < 0 :
                 current_max = -current_max
             if current_min < 0 :
                 current_min = -current_min
-            if delta < 0 :
+            if delta < 0 :      # can't be, why is this here?
                 delta = -delta
             multiplier   = get_next_higher_prime( current_max )
             addition     = get_next_higher_prime( current_min )
@@ -616,21 +663,23 @@ class PrngCrypto( LcgCrypto ) :
             # prng_set size, vector_depth,  should be differently different than
             # vector_depth
             # good enough for now.
-            for _ in range( vector_depth ) :
-                the_prng = prngs.next( the_rnt, self.integer_width,
-                        self.vector_depth, paranoia_level, multiplier,
-                        addition, lag )
+            print( "n_prngs = ", n_prngs, vector_depth,
+                   hex( multiplier ), hex( addition ), hex( delta ), lag, )
+            sys.stdout.flush()
+            the_prng = prngs.next( the_rnt, int( self.integer_width ),
+                        int( self.vector_depth ), int( paranoia_level ),
+                        int( multiplier ), int( addition ), int( lag ) )
 
-                self.prng_set.append( the_prng )
+            self.prng_set.append( the_prng )
 
-                current_max -= delta
-                current_min += delta
-                lag         += 1
-                delta        = get_next_higher_prime( delta )
+            current_max -= delta
+            current_min += delta
+            lag         += 1
+            delta        = get_next_higher_prime( delta )
 
-        for i in range( self.vector_depth ) :  
-            # steps should be dependent on the pw
-            steps = self.the_rnt.password_hash % 64
+        # steps should be dependent on the pw
+        steps = self.the_rnt.password_hash % 64
+        for i in range( n_prngs ) :  
             self.prng_set[ i ].next( 8, steps )
 
 #            sys.stderr.write( "init finished\n" )
@@ -653,58 +702,59 @@ class PrngCrypto( LcgCrypto ) :
 
         So not one that likely fuzzes any statistics beyond what they were,
         but certainly one that works against any other attack.
+
+        This got very slow with my last fix.
         """
 
         # We want an index into the bit-width bits, which must be less than
-        # bit_width.  That is a power of 2, of course.
-        bit_selection_mask = bit_width - 1
+        # bit_width.
+#        bit_selection_mask = bit_width - 1
         return_integer = 0
-        self.next_prng %= ( self.vector_depth - 1 )
+        self.next_prng %= ( self.n_prngs - 1 )
         for _ in range( steps ) :
             for bit_index in range( bit_width ) :
     
                 # bit is selected by the last prng in the vector
                 selected_bit_index = \
-                            self.prng_set[ self.vector_depth - 1 ].next(
-                                bit_width, 1 ) &  bit_selection_mask 
+                            self.prng_set[ self.n_prngs - 1 ].next(
+                                bit_width, 1 ) % bit_width
     
-                lcg_value = \
+                random_value = \
                     self.prng_set[ self.next_prng ].next( bit_width, 1 )
                 self.next_prng += 1
-                self.next_prng %= ( self.vector_depth - 1 )
+                self.next_prng %= ( self.n_prngs - 1 )
     
-                # shift a bit to the selected bit index
+                # shift a mask bit to the selected bit index
                 bit_mask = 1 << selected_bit_index
-    
+
                 # mask to select the bit value
-                selected_bit_value = lcg_value & bit_mask
-    
-                # shift the selected bit to the 0th position
-                bit_value = selected_bit_value >> selected_bit_index 
-    
-                # put the unshifted bit into the return byte
-                return_integer |= ( bit_value << bit_index )
-    
+                selected_bit_value = random_value & bit_mask
+
+#                print( "random_value = ", hex( random_value ) )
+                # shift the bit and xor it into the random number
+                shift_distance = selected_bit_index - bit_index
+                if shift_distance > 0 :
+                    return_integer ^= selected_bit_value >>  shift_distance
+                else :
+                    return_integer ^= selected_bit_value << -shift_distance
+#                print( "return_integer = ", hex( return_integer ) )
+
         self.total_cycles += steps
-        return return_integer & ( ( 1 << bit_width ) - 1 )
 
+        # Steps writes over the bits, so the integer is bit_width wide
+        return return_integer
 
-    def dump_state( self ) :
-        """
-        Debug code
-        """
-        for element in self.prng_vector :
-            sys.stderr.write( str( element ) + '\n' )
-            element.dump_state()
-
+def dump_state( self ) :
+    """ Debug code """
+    for element in self.prng_vector :
+        sys.stderr.write( str( element ) + '\n' )
+        element.dump_state()
 
 def generate_random_table( the_rnt, n_bytes, bitwidth ) :
-    """
-    generate N bytes of random data in 64-bit hexadecimal words
+    """ generate N bytes of random data in 64-bit hexadecimal words
     I use this to generate the first-generation evocrypt.py'
     4K_Constant bytes when the program is fissioned.
-    """
-
+    """ 
     random_table = ''
     the_crypto = PrngCrypto( the_rnt, 23, 256, 31, 1 )
 
@@ -761,7 +811,7 @@ if __name__ == "__main__" :
         OPTS, ARGS = getopt.getopt( sys.argv[ 1 : ], SHORT_ARGS, LONG_ARGS )
 
     except getopt.GetoptError as err :
-        sys.stderr.write( "getopt.GetoptError = " + err )
+        sys.stderr.write( "getopt.GetoptError = " + str( err ) )
         sys.exit( -2 )
 
     for o, a in OPTS :
@@ -783,7 +833,7 @@ if __name__ == "__main__" :
     BIN_VECTOR = array.array( 'L' )
     BIN_VECTOR.append( 0 )
 
-    FP = os.fdopen( sys.stdout.fileno(), 'wb' )
+    SO = os.fdopen( sys.stdout.fileno(), 'wb' )
 
     # all the rest is testing
     if 'generate_random_table' in TEST_LIST :
@@ -806,7 +856,7 @@ if __name__ == "__main__" :
             THE_RANDOM_NUMBER &= ( 1 << 64 ) - 1
 
             BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
-            BIN_VECTOR.tofile( FP )
+            BIN_VECTOR.tofile( SO )
 #            print( hex( THE_RANDOM_NUMBER )
 
     if 'lcg_crypto_rate' in TEST_LIST :
@@ -835,7 +885,7 @@ if __name__ == "__main__" :
             THE_RANDOM_NUMBER &= ( 1 << 64 ) - 1
 
             BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
-            BIN_VECTOR.tofile( FP )
+            BIN_VECTOR.tofile( SO )
 #            sys.stdout.write( hex( THE_RANDOM_NUMBER ) + '\n'  )
 
     if 'prng_crypto_rate' in TEST_LIST :
@@ -860,7 +910,7 @@ if __name__ == "__main__" :
         while True :
             THE_RANDOM_NUMBER = THE_HASH_CRYPTO.next( 64, 1 )
             BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
-            BIN_VECTOR.tofile( FP )
+            BIN_VECTOR.tofile( SO )
 #            print( hex( THE_RANDOM_NUMBER ) )
 
 
@@ -909,7 +959,7 @@ if __name__ == "__main__" :
 
 #                    print( "ciph_word = ", hex( CIPH_WORD ) )
                 BIN_VECTOR[ 0 ] = CIPH_WORD
-                BIN_VECTOR.tofile( FP )
+                BIN_VECTOR.tofile( SO )
  
 
 
@@ -955,4 +1005,16 @@ if __name__ == "__main__" :
         LOG_FD.flush()
         # TEST CODE TO HERE
 
+
+    if 'hash32' in TEST_LIST :
+    # a test of 32-bit hash randomness, it is failing.
+        MAX_INT_MASK = ( 1 << 64 ) - 1
+        print( hex( MAX_INT_MASK ) )
+        HASH = HashCrypto( THE_RNT, 11, 32, 17, 2 )
+        while True :
+            RANDOM0 = HASH.next( 32, 2 )
+            RANDOM1 = HASH.next( 32, 2 )
+            THE_RANDOM = ( ( RANDOM0 << 32 ) + RANDOM1 ) & MAX_INT_MASK
+            BIN_VECTOR[ 0 ] = THE_RANDOM
+            BIN_VECTOR.tofile( SO )
 

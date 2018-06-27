@@ -107,6 +107,12 @@ class PRNGs() :
                                     ]
         self.next_prng_index      = 0
 
+        # not useless, calculated entropy can only be known to an opponent
+        # if they also have the random number table
+        the_rnt = RNT( 4096, 1, 'desktop', "internal password" )
+
+        the_rnt.scramble_list( self.prng_functions )
+
     def name( self ) :
         """
         Returns the string name, debugging.
@@ -454,13 +460,15 @@ class LCG():
         self.lag                  = lag
         self.index                = 0
 
+        if integer_width <= 32 :    # bad, so apply paranoia
+            self.integer_vector_size  = get_next_higher_prime( 4 * n_integers )
+
         # width of the integers in the lcg_array
         self.width_in_bits        = integer_width
         self.width_in_bytes       = integer_width / 8 
         self.width_in_hexits      = self.width_in_bytes * 2
-        self.total_steps         = 0
+        self.total_steps          = 0
         self.max_integer_mask     = ( 1 << integer_width ) - 1
-        self.max_integer          =   1 << integer_width 
 
         self.integer_vector = [ 0 for _ in range( self.integer_vector_size ) ]
 
@@ -487,7 +495,7 @@ class LCG():
         the_hash = hashes.next()
 
 
-        # each LCD will be unique in these, so uniquely initialized
+        # each LCG will be unique in these, so uniquely initialized
         the_hash.update( self.entropy )
         the_hash.update( str( self.multiplier ) + str( self.constant ) + \
                          str( self.lag ) )
@@ -515,7 +523,11 @@ class LCG():
 
         # Cycle it a random number of times
         steps = self.the_rnt.next_random_value( xor_result, 
-                                                 self.width_in_bits ) % 1024
+                                           self.width_in_bits ) % 32
+
+# this complains about not being initialized properly for MA03
+# because 'self.next()' calls the MA03 next, not the LCG next.
+# ?? how to fix that ???
 #        self.next( self.integer_width, steps )
 
 
@@ -530,32 +542,54 @@ class LCG():
         Returns the next pseudo-random bit_width value after steps of
         operation.
 
-        This produces far too many leading digits of 0 in the 128-bit
-        numbers, so we return the middle 64 bits.
+        32-bit widths still produce an occassional duplicate, 1 in 16K
+        chance of that randomly.
         """
 
         return_value = 0
-        for _ in range( steps * self.paranoia_level ) :
+        # 32-bit LCGs are intrinsically not very good, so double the
+        # paranoia
+        n_steps      = steps * self.paranoia_level
+        if self.integer_width <= 32 :
+            n_steps *= 2
+        for _ in range( n_steps ) :
             # this algorithm has a subtle bias to '1' in the hi bit.
             while return_value < ( 1 << bit_width * 2 ) :
-                return_value <<= 32
+                return_value <<= int( self.integer_width / 4 )
 
-                lagged_index = ( self.index + self.lag ) % \
-                               self.integer_vector_size
-
-                # mask to the max_value to prevent wild growth of the integer
-                new_vector_value  = self.max_integer_mask
-                new_vector_value &= self.integer_vector[ lagged_index ]
-                new_vector_value *= self.multiplier
-                new_vector_value += self.constant
-
-                self.integer_vector[ self.index ] = new_vector_value
-
+                # update the next integer this cycle through
                 self.index = ( self.index + 1 ) % self.integer_vector_size
                 self.total_steps += 1
 
+                # this is a step of the state machine
+                lagged0_index = ( self.index + self.lag ) % \
+                               self.integer_vector_size
+
+                new_vector_value = self.integer_vector[ lagged0_index ] * \
+                                   self.multiplier + self.constant
+
+                # the shift is crucial to prevent duplicates
+                self.integer_vector[ self.index ] ^= ( new_vector_value >> 5 ) \
+                                                     & self.max_integer_mask
+
                 # mask for middle bits
-                return_value +=  ( self.integer_vector[ self.index ] >> 32 ) 
+                return_value +=  ( new_vector_value >> \
+                                   int( self.integer_width / 4 ) )
+
+                # this is a step of the state machine
+                lagged1_index = ( self.index + self.lag + 1 ) % \
+                               self.integer_vector_size
+
+                new_vector_value = self.integer_vector[ lagged0_index ] * \
+                                   self.multiplier + self.constant
+
+                # the shift is crucial to prevent duplicates
+                self.integer_vector[ self.index ] ^= ( new_vector_value >> 3 ) \
+                                                     & self.max_integer_mask
+
+                # mask for middle bits
+                return_value +=  ( new_vector_value >> \
+                                   int( self.integer_width / 4 ) )
 
         return self.the_fold.fold_it( return_value, bit_width )
 
@@ -757,8 +791,8 @@ class MultiplyAdd02( MultiplyAdd01 ) :
         """
 
         return_value = 0
-        while return_value < ( 1 << bit_width * 2 ) :
-            for _ in range( steps ) :
+        for _ in range( steps ) :
+            while return_value < ( 1 << bit_width * 2 ) :
                 return_value <<= 16
                 self.index = ( self.index + 1 ) % self.integer_vector_size
                 self.integer_vector[ self.index ] *= self.multiplier + \
@@ -782,8 +816,7 @@ class MultiplyAdd03( MultiplyAdd02 ) :
     A generalization of a simple multiply-add used for testing.
 
     This makes additional updates with different lags dependent upon the
-    paranoia levels and also use separater multiplier-add combinations.
-
+    paranoia levels and also use separate multiplier-add combinations.
 
     I like that, meaningfully scalable in paranoia. Note there is no
     reason for the multiplier and addition values to be paired, they
@@ -828,6 +861,7 @@ class MultiplyAdd03( MultiplyAdd02 ) :
         # initializations?
         # Easier to copy the code?
         # indexes should be different small prime values, doesn't matter
+        self.n_integers = n_integers
         self.mult_index = 1
         self.add_index  = 1
         self.counter    = 0
@@ -840,19 +874,23 @@ class MultiplyAdd03( MultiplyAdd02 ) :
         # n_integers
         self.multipliers = []
         self.additions   = []
-        max_integer      = ( 1 << integer_width ) - rnt.randint( 48 )
 
         big_prime     = multiplier
         small_prime   = addition
 
         # range of top and bottom quartiles
-        increment = int( rnt.randint( 48 ) / n_integers )
+        print( "integer_width = ", integer_width )
+        sys.stdout.flush()
+        increment = int( rnt.randint( int( integer_width ) ) / n_integers )
+        increment >>= 4
+        print( "increment = ", hex( increment ) )
+        sys.stdout.flush()
 
         for _ in range( n_integers ) :
-            big_prime   = get_next_higher_prime( int( big_prime   + increment ))
-            small_prime = get_next_higher_prime( int( small_prime + increment ))
-            self.multipliers.append( big_prime )
-            self.additions.append( small_prime )
+            self.multipliers.append( get_next_higher_prime(
+                                     int( big_prime   + increment ) ) )
+            self.additions.append( get_next_higher_prime(
+                                   int( small_prime + increment ) ) )
 
 
     def name( self ) :
@@ -868,15 +906,15 @@ class MultiplyAdd03( MultiplyAdd02 ) :
         """
 
         return_value = 0
-        while return_value < ( 1 << bit_width * 2 ) :
-            for _ in range( steps ) :
-                return_value    <<= 32
+        for _ in range( steps ) :
+            while return_value < ( 1 << bit_width * 2 ) :
+                return_value = return_value << int( bit_width / 4 )
                 self.index      = ( self.index      + 1 ) % \
                                     self.integer_vector_size
                 self.mult_index = ( self.mult_index + 3 ) % \
-                                    self.integer_vector_size
+                                    self.n_integers
                 self.add_index  = ( self.add_index  + 5 ) % \
-                                    self.integer_vector_size
+                                    self.n_integers
 
                 self.integer_vector[ self.index ] *= \
                                             self.multipliers[ self.mult_index ]
@@ -887,9 +925,9 @@ class MultiplyAdd03( MultiplyAdd02 ) :
                 for lag in self.lag_set[ 0 : self.paranoia_level ] :
                     lag_index  = ( self.index + lag ) % self.integer_vector_size
                     self.mult_index = ( self.mult_index + 3 ) % \
-                                        self.integer_vector_size
+                                        self.n_integers
                     self.add_index  = ( self.add_index  + 5 ) % \
-                                        self.integer_vector_size
+                                        self.n_integers
 
                     a_temp = self.integer_vector[ lag_index ] * \
                              self.multipliers[ self.mult_index ] + \
@@ -991,12 +1029,17 @@ def byte_rate( the_function, result_width, n_values ) :
     Result_width is the desired width of the result of that function in bits.
     N is the number of results to compute before returning bytes/second.
     """
+    print( "the_function = ", the_function )
     beginning_time = int( time.time() )
+    steps = 1
     for _ in range( n_values ) :
-        _ = the_function.next( result_width , 1 )
-    ending_time = int( time.time() )
+        the_function.next( result_width, steps )
 
-    return ( n_values * ( result_width / 8 ) ) / ( ending_time - beginning_time)
+    elapsed_time = int( time.time() ) - beginning_time
+    if elapsed_time == 0 :
+        elapsed_time = 1
+
+    return ( n_values * ( result_width / 8 ) ) / elapsed_time
 
 #SINGLE_PROGRAM_TO_HERE
 
