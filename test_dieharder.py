@@ -3,6 +3,7 @@
 import os
 import sys
 from array import array
+import random
 import shlex
 import subprocess
 import unittest
@@ -18,9 +19,10 @@ class TestDieharder( unittest.TestCase ) :
         self.bin_vector = array( 'L' )
         self.bin_vector.append( 0 )
 
-        self.the_rnt = RNT( 4096, 1 )
-        self.the_rnt.hash_password( 'this is a passphrase' )
-
+        random()
+        password = 'TestEvoDieHarder' + hex( random.getrandbits( 128) )
+        self.the_rnt = RNT( 4096, password, 'desktop', 1 )
+                         
     def test_1( self ) :
 
         command = "/home/lew/EvoCrypt/evornt.py --test randint |

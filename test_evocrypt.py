@@ -5,11 +5,32 @@ import os
 import io
 import filecmp
 import unittest
+import random
 import evornt
+import copy
+from evornt   import RNT
+from evocrypt import crypt
+
 
 from evocrypt import assemble_program_from_dev_files, generate_new_program, \
 check_name_against_hash, generate_random_array, replace_random_table, \
 encrypt_file, decrypt_file, crypt
+
+def count_duplicates( the_list ) :
+    """
+    A weak check for randomness, are any values the same?
+    16M comparisons for the dumb way on a 4K grid, K**2
+    same number of ops as to sort, cheaper operations
+    """
+    duplicate_tally = 0
+    for i in range( len( the_list ) - 1 ) :
+        this_random = the_list[ i ]
+        for j in range( i + 1, len( the_list ) ) :
+            if( this_random == the_list[ j ] ) :
+                print( "duplicate = ", this_random, "i = ", i, "j = ", j )
+                duplicate_tally += 1
+
+    return duplicate_tally
 
 
 def chars_to_lines( text_as_chars ) :
@@ -50,6 +71,14 @@ def extract_rnt_from_text( text_as_lines ) :
         if n_k_found_flag :
             return_text += this_line
 
+def convert_string( the_program ) :
+    """
+    This is necessary because exec() does not work within the class.
+    No idea why, PITA to figure that out.
+    """
+    exec( the_program, globals() )
+    return N_K_RANDOM_BYTES
+
 class TestEvoCrypt( unittest.TestCase ) :
 
     def __init__( self ) :
@@ -64,7 +93,9 @@ class TestEvoCrypt( unittest.TestCase ) :
         """
         # instantiate a random number table
         # hard code desired RNT bytes and paranoia level for now
-        self.the_rnt = RNT( 4096, 1, 'desktop', 'TestEvoFolds' )
+        random()
+        password = 'TestEvoCrypt' + hex( random.getrandbits( 128 ) )
+        self.the_rnt = RNT( 4096, password, 'desktop', 1 )
         SO = os.fdopen( sys.stdout.fileno(), 'wb' )
 #       SE = os.fdopen( sys.stderr.fileno(), 'wb' )
 
@@ -76,6 +107,8 @@ class TestEvoCrypt( unittest.TestCase ) :
         """
         Test the function
         """
+        print( "test_assemble_program" )
+
         the_program = assemble_program_from_dev_files()
         program_out = open( "test_evocrypt_assemble.test", "w" )
         program_out.write( the_program )
@@ -106,26 +139,43 @@ class TestEvoCrypt( unittest.TestCase ) :
         """
         test the function in the context of the program.
         """
-        fred = "baloney\n"
+        print( "test_replace_4K" )
 
         original_table = extract_rnt_from_text( self.the_program_list )
-        original_table += '\noriginal_rnt = N_K_RANDOM_BYTES\n'
+        print( type( original_table ) )
+        print( original_table )
 
-        original_rnt   = []
-        exec( original_table, globals(), locals() )
+        original_table = convert_string( original_table )
+        print( type( original_table ) )
+        print( original_table )
+
+        comma_count = original_table.count(',')
+        print( "n ','s = ", comma_count )
+
+        # check it produced the right length of original table 
+        self.assertTrue( len( original_table ) * 8 > 4096,
+                        "len( original_table ) = " +
+                         str( len( original_table ) ) )
 
         new_program = replace_random_table( self.the_program_list,
                                           'this is the pw', 4096 )
         text_list      = chars_to_lines( new_program )
         new_table      = extract_rnt_from_text( text_list )
-        new_table      += '\nnew_rnt = N_K_RANDOM_BYTES\n'
+        print( "type( new_table ) = ", type( new_table ) )
+        print( new_table )
 
-        new_rnt        = []
-        exec( new_table, globals(), locals() )
+        new_table = convert_string( new_table )
+        print( new_table )
+
+        # check it produced the right length of table
+        self.assertTrue( len( new_table ) * 8 > 4096, "len( new_table ) = " +
+                         str( len( new_table ) ) )
 
         # Probabilistic, but 64 bits is a big #, should be OK
-        for i in range( len( new_rnt ) ) :
-            self.assertFalse( original_rnt[ i ] == new_rnt[ i ] )
+        self.assertTrue( count_duplicates( new_table ) == 0 )
+        
+        for i in range( len( new_table ) ) :
+            self.assertFalse( original_table[ i ] == new_table[ i ] )
 
         print( "test_replace_4K works" )
 
@@ -138,6 +188,7 @@ class TestEvoCrypt( unittest.TestCase ) :
         generate_new_program( password, this_file_name, new_file_name,
                           array_size )
         """
+        print( "test_generate_new_progrm" )
 
         new_name = generate_new_program( "frederico",
                                          "test_evocrypt_assemble.test",
@@ -152,6 +203,7 @@ class TestEvoCrypt( unittest.TestCase ) :
 
         check_name_against_hash( this_file_name )
         """
+        print( "test_check_name_against_hash" )
         check_name_against_hash( self.the_generated_program_name )
 
     def test_cryption( self ) :
@@ -159,7 +211,8 @@ class TestEvoCrypt( unittest.TestCase ) :
         Encrypts and decrypts this file, compares it to the original.
 
         Encrypt and decrypt must be tested using an assembled program
-        because of the checking done.
+        because of the checking done to validate program against
+        decryption.
 
         So this can only test crypt.
 
@@ -169,6 +222,8 @@ class TestEvoCrypt( unittest.TestCase ) :
         def encrypt_file( to_be_encrypted_file_name, password, system_type,
                   paranoia_level ) 
         """
+        print( "test_cryption" )
+
         # this matches the chat setup.
         passphrase     = 'Frederikco'
         system_type    = 'desktop'
@@ -190,6 +245,7 @@ class TestEvoCrypt( unittest.TestCase ) :
 
         # retrieve the ciphertext
         sys.stdout.seek( 0 )
+
         ciphertext = sys.stdout.read()
         if len( ciphertext) == 0 :
             sys.exit( 0 )
@@ -228,8 +284,8 @@ class TestEvoCrypt( unittest.TestCase ) :
         """
         print( "test_final_acceptance" )
 
-        the_rnt = RNT( 4096, 2, 'this is a passphrase' )
-        self.assertTrue( the_rnt.password_hash != 0, "password has was zero" )
+        the_rnt = RNT( 4096, 'this is a passphrase', 'desktop', 2 )
+        self.assertTrue( the_rnt.password_hash != 0, "password hash was zero" )
 
 
 if __name__ == '__main__':
@@ -237,10 +293,6 @@ if __name__ == '__main__':
 # they show up on the search line, but it doesn't help. There is some
 # other file I need to find.
     sys.path.insert( 0, '/home/lew/EvoCrypt' )
-
-    import copy
-    from evornt   import RNT
-    from evocrypt import crypt
 
 #    unittest.main()
     TEST_EVOCRYPT = TestEvoCrypt()

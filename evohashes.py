@@ -28,8 +28,9 @@ TODO :
 import os
 import sys
 import getopt
-from   array import array
+from   array    import array
 import copy
+from   evofolds import FoldInteger
 
 #SINGLE_PROGRAM_FROM_HERE
 
@@ -76,7 +77,7 @@ class HASHES() :
 
 class HASH0( ) :
     """
-    Another hash, which I invented. The goal for this is to pass dieharder
+    A hash which I invented. The goal for this is to pass dieharder
     for a 1-byte update taken from the low byte of the last value, with
     64-bit integers.  That is a very stringent test.
 
@@ -101,6 +102,7 @@ class HASH0( ) :
         self.integer_vector   = []
         self.backup_vector    = []
 
+        self.the_fold            = FoldInteger( )
 
         # A simple initialization.  Could get the next higher prime,
         # multiply by an index into the global 4K_RANDOM_BYTES, etc.
@@ -129,10 +131,7 @@ class HASH0( ) :
         Used in testing the hashes.
         I should add an optional param to each to allow saving and
         restoring the vector's in the user's space rather than this
-        inside-the-hash space. I can't quite see a use, but it seems
-        right, a building block I can make structures out of.
-
-        No use yet, so I haven't done this.
+        inside-the-hash space. 
         """
         self.backup_vector = copy.deepcopy( self.integer_vector )
 
@@ -195,7 +194,8 @@ class HASH0( ) :
         This one is designed to produce 50% changes in the digest for a
         one-bit update. Easy to overdo that, except that you can't
         change more than 50% if they are random in the first place, so who
-        can tell you did? Thus, overkill is the way to go.
+        can tell you did? Computational load is no particular constraint,
+        so overkill is the way to go.
         """
         if isinstance( the_update, str ) :
             for this_byte in the_update :
@@ -264,12 +264,14 @@ class HASH0( ) :
 
         elif isinstance( the_update, list or dict ) :
             print( "update with a list or dict" )
+            sys.stdout.flush()
             sys.exit( 1 )
 
         # the integers grow without bound in the basic update.
-        # mask the integers back into range.
+        # fold the integers back into range.
         for j in range( self.hash_depth ) :
-            self.integer_vector[ j ] &= self.max_integer_mask
+            self.integer_vector[ j ] = self.the_fold.fold_it(
+                                  self.integer_vector[ j ], self.integer_width )
 
     def next( self, bit_width, steps ) :
         """
@@ -284,7 +286,7 @@ class HASH0( ) :
             # update the array with the full word.
             self.update( self.integer_vector[ new_index ] )
 
-        return self.intdigest() & ( ( 1 << bit_width ) - 1 )
+        return self.the_fold.fold_it( self.intdigest(), bit_width )
 
     def hexdigest( self ) :
         """
@@ -390,12 +392,14 @@ class HASH1( HASH0 ) :
 
         elif isinstance( the_update, list or dict ) :
             print( "update with a list or dict" )
+            sys.stdout.flush()
             sys.exit( 1 )
 
         # the integers grow without bound in the basic update.
-        # mask the integers back into range.
+        # fold the integers back into range.
         for j in range( self.hash_depth ) :
-            self.integer_vector[ j ] &= self.max_integer_mask
+            self.integer_vector[ j ] = self.the_fold.fold_it(
+                                  self.integer_vector[ j ], self.integer_width )
 
 class HASH2( HASH0 ) :
     """
@@ -472,12 +476,14 @@ class HASH2( HASH0 ) :
 
         elif isinstance( the_update, list or dict ) :
             print( "update with a list or dict" )
+            sys.stdout.flush()
             sys.exit( 1 )
 
         # the integers grow without bound in the basic update.
-        # mask the integers back into range.
+        # fold the integers back into range.
         for j in range( self.hash_depth ) :
-            self.integer_vector[ j ] &= self.max_integer_mask
+            self.integer_vector[ j ] = self.the_fold.fold_it(
+                                  self.integer_vector[ j ], self.integer_width )
 
 
 #
@@ -521,7 +527,7 @@ def usage() :
 if __name__ == "__main__" :
 
     import random
-    from   evornt import RNT
+    from   evornt   import RNT
 
 #    print '#' + __filename__
 #    print '#' + __version__
@@ -560,7 +566,7 @@ if __name__ == "__main__" :
     random.seed()
 
     PASSPHRASE = 'this is a passphrase' + hex( random.getrandbits( 128 ) )
-    THE_RNT = RNT( 4096, 2, 'desktop', PASSPHRASE )
+    THE_RNT = RNT( 4096, PASSPHRASE, 'desktop', 2 )
 
     BIN_VECTOR = array( 'L' )
     BIN_VECTOR.append( 0 )
@@ -593,8 +599,8 @@ if __name__ == "__main__" :
     # Tests the 'next()' function which allows a hash to be a prng.
     # latest results, with the initialization from the 4k_randoms
     # this is intentionally a small RNT
-    # 3.09e04 rands/second passes most through rgb_bitdist[ 11 ], 0 are
-    # weak.
+     # 3.09e04 rands/second passes all tests except rgb_lagged_sum[ 24],
+     # which is weak.
     if 'next' in TEST_LIST :
         # ( password, integer_width, hash_depth ) :
         THE_HASH = HASH0( THE_RNT, 64, 31 )
@@ -609,7 +615,7 @@ if __name__ == "__main__" :
 
 #            print( hex( THE_RANDOM_NUMBER ) )
 
-    if 'new' or 'hash0' in TEST_LIST :
+    if 'hash0' in TEST_LIST :
         # ( password, integer_width, hash_depth ) :
         THE_HASH = HASH0( THE_RNT, 64, 31 )
 

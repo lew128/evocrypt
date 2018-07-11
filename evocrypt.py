@@ -303,7 +303,7 @@ def generate_random_array( passphrase, array_size ) :
 
     This operates the random generation in ultra-paranoid mode.
     """
-    the_rnt       = RNT( 4096, 1, 'desktop', passphrase )
+    the_rnt       = RNT( 4096, passphrase, 'desktop', 1 )
 
     the_fold = FoldInteger()
 
@@ -594,7 +594,7 @@ def decrypt_file( to_be_decrypted_file_name, password, system_type,
 
     total_password = password + byte_plain_text_digest.hex()
 
-    the_rnt       = RNT( 4096, paranoia_level, 'desktop', total_password )
+    the_rnt       = RNT( 4096, total_password,  'desktop', paranoia_level )
 
     the_crypto = CRYPTO( password, system_type, paranoia_level )
     decode     = the_crypto.next()
@@ -647,7 +647,7 @@ def crypt( password, system_type, paranoia_level ) :
     This works.
     """ 
 
-    the_rnt       = RNT( 4096, paranoia_level, system_type, password )
+    the_rnt       = RNT( 4096, password, system_type, paranoia_level )
     sys.stderr.write( "password hash = " + hex( the_rnt.password_hash ) + '\n' )
 
     the_crypto    = CRYPTO( password, system_type, paranoia_level )

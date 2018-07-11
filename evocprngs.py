@@ -32,13 +32,15 @@ import random
 import struct
 import array
 import evoutils
-from evofolds  import FoldInteger
-from evohashes import HASHES
-from evornt    import RNT
-from evoprimes import get_next_higher_prime
-from evoprngs  import PRNGs, LCG, byte_rate
-from evoutils  import VERBOSITY_LEVEL, DEBUG_FD, debug, close_files_and_exit, \
-                     print_stacktrace, print_stacktrace_exit
+from evofolds     import FoldInteger
+from evohashes    import HASHES
+from evoprngutils import generate_constants
+from evornt       import RNT
+from evoprimes    import get_next_higher_prime
+from evoprngs     import PRNGs, LCG, byte_rate
+from evoutils     import VERBOSITY_LEVEL, DEBUG_FD, debug, \
+                         close_files_and_exit, print_stacktrace, \
+                         print_stacktrace_exit
 
 
 #from evochat   import LOG_FD
@@ -48,10 +50,8 @@ from evoutils  import VERBOSITY_LEVEL, DEBUG_FD, debug, close_files_and_exit, \
 #
 # Classes of CRYPTO-QUALITY-PRNGS
 #
-
 # This implements a PseudoRandom Number Generator using a set of
 # Linear Congruential # Generators.
-
 # LCGs can be predicted, and should not be be used for cryptographic
 # applications.
 
@@ -133,8 +133,8 @@ class CRYPTO :
         # hard code desired RNT bytes and paranoia level for now
         # because it is passed everywhere, I am using it to pass the
         # paranoia_level and sysem type
-        self.the_rnt           = RNT( 4096, paranoia_level, system_type,
-                                      passphrase )
+        self.the_rnt           = RNT( 4096, passphrase, system_type,
+                                      paranoia_level )
 
         self.entropy           = self.the_rnt.password_hash
         self.the_rnt.paranoia_level = paranoia_level
@@ -199,15 +199,14 @@ class LcgCrypto() :
 
         self.the_rnt             = the_rnt
         self.integer_width       = prng_bit_width
-        if self.integer_width <= 32 :
-            self.n_prngs = get_next_higher_prime( n_prngs * 4 )
-        else :
-            self.n_prngs = n_prngs
-        print( "self.n_prngs = ", self.n_prngs )
+        # 64 bits is the least I think is reliably random, are now prohibited
+        if self.integer_width < 64 :
+            print( "integer widths less than 64 bits are prohibited!" )
+            sys.exit( 0 )
+        self.n_prngs             = n_prngs
         self.vector_depth        = vector_depth
         self.paranoia_level      = paranoia_level
 
-#        self.bit_selection_mask  = prng_bit_width - 1
         self.next_prng           = 0
         self.max_integer_mask    = ( 1 << prng_bit_width ) - 1
         self.max_integer         =   1 << prng_bit_width
@@ -221,18 +220,17 @@ class LcgCrypto() :
 
         # hash_depth should be differently different than vector_depth
         # good enough for now.
-        hashes = HASHES( the_rnt, self.integer_width, self.vector_depth )
-        the_hash = hashes.next()
+#        hashes = HASHES( the_rnt, self.integer_width, self.vector_depth )
+#        the_hash = hashes.next()
 
-        the_hash.update( str( n_prngs ) + str( prng_bit_width ) + 
-                         str( vector_depth ) + str( paranoia_level ) )
-        hash_of_state = the_hash.intdigest()
+#        the_hash.update( str( n_prngs ) + str( prng_bit_width ) + 
+#                         str( vector_depth ) + str( paranoia_level ) )
+#        hash_of_state = the_hash.intdigest()
 
         # small enough it doesn't mis-order the numbers, large enough
         # it won't be close to the calculated value
-        fold_width = int( prng_bit_width *.6 )
-        folded_hash_of_state = \
-            self.the_fold.fold_it( hash_of_state, fold_width )
+#        folded_hash_of_state = \
+#            self.the_fold.fold_it( hash_of_state, self.integer_width )
             
         # multipliers and additive constants :
         # need 2 series of primes a good distance apart, say the low
@@ -240,20 +238,14 @@ class LcgCrypto() :
         # beginning 60% to 90% We need N of each.
         # This is predictable from standard integer widths, so we also need the
         # entropy mixed into this.
-        current_max = ( self.entropy_bits + folded_hash_of_state ) % \
-                        int( self.max_integer * .9 )
-        current_min = ( self.entropy_bits + folded_hash_of_state ) % \
-                        int( self.max_integer * .1 )
-
-        # 1/Nth of 30% of the total range >> 4
-        delta        = int( ( current_max * .3 ) / self.n_prngs ) >> 4
-
-        lag = 7   # initial lag.  Even if the primes become > n_prngs, it
-                  # is OK because that wraps around the set.
+        # return multiplier, constant, lag, increment
+        
+#        entropy_bits = folded_hash_of_state ^ self.entropy_bits
+        constant_generator = generate_constants( self.the_rnt,
+                                                 self.integer_width,
+                                                 self.n_prngs )
         for i in range( self.n_prngs ) :
-            multiplier   = get_next_higher_prime( current_max )
-            constant     = get_next_higher_prime( current_min )
-            lag          = get_next_higher_prime( lag )
+            multiplier, constant, lag, _ = next( constant_generator )
 
             # seed, rnt, integer_width, n_integers, multiplier, constant, lag 
             self.prng_vector.append( LCG( self.the_rnt,
@@ -261,14 +253,9 @@ class LcgCrypto() :
                                           self.paranoia_level,
                                           multiplier, constant, lag ) )
 
-            current_max -= delta
-            current_min += delta
-            lag         += 2
-            delta        = get_next_higher_prime( delta )
-
         for i in range( self.n_prngs ) :  
             # steps should be dependent on pw
-            steps = self.the_rnt.password_hash % 64
+            steps = self.the_rnt.password_hash & 0x2F
             self.prng_vector[ i ].next( 8, steps )
 
     def next( self, bit_width, steps ) :
@@ -317,14 +304,6 @@ class LcgCrypto() :
                 # mask to select the bit value
                 selected_bit_value = lcg_value & bit_mask
     
-                # shift the bit to fit it into the bit_index bit
-                # position in the new word
-                # selected 0 bit_index 0 shift right 0
-                # selected 0 bit_index 5 shift  left 5
-                # selected 5 bit_index 0 shift right 5
-                # selected 5 bit_index 3 shift right 2
-                # selected 3 bit_index 5 shift  left 2
-
                 shift_distance = selected_bit_index - bit_index
                 if shift_distance > 0 :
                     return_integer ^= selected_bit_value >> shift_distance
@@ -334,9 +313,8 @@ class LcgCrypto() :
 #                print( "i : ", hex( return_integer ) )
 
         self.total_cycles += steps
-#        print( hex( return_integer ) )
-#        sys.stdout.flush()
-         # The integer is bit_width * steps wide
+
+        # At this point, the return integer is bit_width * steps wide
         return ( self.the_fold.fold_it( return_integer, bit_width ) )
 
 
@@ -440,7 +418,8 @@ class HashCrypto( LcgCrypto ) :
     def __init__( self, the_rnt, n_prngs, integer_width, vector_depth,
                   paranoia_level ) :
         """
-        initializes N LCGs 
+        initializes n_prngs with integers, then another n_prngs with
+        hashes?
         """
         LcgCrypto.__init__( self, the_rnt, n_prngs, integer_width,
                             vector_depth, paranoia_level )
@@ -454,7 +433,7 @@ class HashCrypto( LcgCrypto ) :
 
         # fill the hash_function_vector with instantiated hash functions
         the_hashes = HASHES( the_rnt, integer_width, vector_depth )
-        for i in range( n_prngs) :
+        for i in range( self.n_prngs ) :
             self.hash_function_vector.append( the_hashes.next() )
             
         # update the integer_vector for every function
@@ -463,10 +442,8 @@ class HashCrypto( LcgCrypto ) :
                 the_rnt.password_hash * i + i )
                                        
         # initial steps should be dependent on the password
-        self.next( 32, self.the_rnt.password_hash % 64 )
+        self.next( 64, self.the_rnt.password_hash % 64 )
 
-#        print( "HashCrypto init = ", n_prngs, integer_width, vector_depth,
-#               paranoia_level )
 
     def next( self, bit_width, steps ) :
         """
@@ -487,19 +464,10 @@ class HashCrypto( LcgCrypto ) :
         from 21 May and 9 June.
         """
 
-#        print( "bit_width = ", bit_width )
-#        print( "self.integer_width = ", self.integer_width )
-
-        # the prng integer_width must be >= bit_width, or bad crypto
-        # this is necessary because it is a dumb algorithm
-        # how can the order of these make a difference in the comparison
-        # result?
-#        assert( self.integer_width <= bit_width )
-
-#        print( "self.n_prngs = ", self.n_prngs )
         return_value = 0
+        return_limit = 1 << bitwidth*2
         for i in range( steps ) : 
-            while return_value < 1 << bit_width :
+            while return_value < return_limit :
                 sys.stdout.flush()
                 return_value = return_value << int( bit_width / 4 )
                 self.next_hash = ( self.n_prngs + 1 ) % self.n_prngs
@@ -508,21 +476,13 @@ class HashCrypto( LcgCrypto ) :
                 # number will do.  Otherwise, 3 and 7 are at least rel-prime
                 rnt_addr0 = ( self.next_hash + i + 3 ) % self.vector_depth
                 rnt_addr1 = ( self.next_hash + i + 7 ) % self.vector_depth
-#                print( "rnt_addr1 = ", rnt_addr1 )
                 sys.stdout.flush()
 
-#                print( "len( self.hash_function_vector ) = ",
-#                        len( self.hash_function_vector ) )
-
-#                print( "len( self.hash_function_vector ) = ",
-#                        len( self.hash_function_vector ) )
                 this_hash = self.hash_function_vector[ self.next_hash ]
 
-#                print( "len( this_hash.integer_vector ) = ",
-#                        len( this_hash.integer_vector ) )
                 # I don't like reaching into the hash's data structures
                 update_value  = this_hash.integer_vector[ rnt_addr0 ]
-                entropy_bits = this_hash.integer_vector[ rnt_addr1 ]
+                entropy_bits  = this_hash.integer_vector[ rnt_addr1 ]
                 # the hash update is the slow part. RNT is to prevent cycles
                 update_value += self.the_rnt.next_random_value( entropy_bits,
                                                             self.integer_width )
@@ -546,7 +506,6 @@ class HashCrypto( LcgCrypto ) :
                 return_value += this_hash.intdigest()
 
         return self.the_fold.fold_it( return_value, bit_width )
-#        return return_value & ( 1 << bit_width ) - 1
 
 
 class PrngCrypto( LcgCrypto ) :
@@ -600,7 +559,6 @@ class PrngCrypto( LcgCrypto ) :
 
         LcgCrypto.__init__( self, the_rnt, n_prngs, integer_width,
                             vector_depth, paranoia_level )
-#        sys.stderr.write( "__init__ prngCrypto\n" )
 
         self.vector_depth        = vector_depth
 
@@ -617,15 +575,15 @@ class PrngCrypto( LcgCrypto ) :
         self.the_fold            = FoldInteger( )
 
         # n_prngs should be differently different than vector_depth
-        hashes = HASHES( the_rnt, self.integer_width, self.vector_depth )
-        the_hash = hashes.next()
+#        hashes = HASHES( the_rnt, self.integer_width, self.vector_depth )
+#        the_hash = hashes.next()
 
         # initialized, but no update is sort of OK
-        hash_of_state = the_hash.intdigest()
+#        hash_of_state = the_hash.intdigest()
 
         # an additional bit of randomness
-        folded_hash_of_state = \
-            self.the_fold.fold_it( hash_of_state, int( integer_width * .6 ) )
+#        folded_hash_of_state = \
+#            self.the_fold.fold_it( hash_of_state,  integer_width )
             
         # multipliers and additive constants :
         # need 2 series of primes a good distance apart, say the low
@@ -633,49 +591,28 @@ class PrngCrypto( LcgCrypto ) :
         # beginning 60% to 90% We need N of each.
         # This is predictable from standard integer widths, so we also need the
         # entropy mixed into this.
-        # the square of entropy_bits is necessary for it to be large
+        # the square of entropy_bits is necessary for it to always be large
         # enough for the mod to do something.
         # current_max steps from high to low, current_min the reverse
-        current_max = ( self.entropy_bits**2  + folded_hash_of_state ) % \
-                        int( self.max_integer * 0.9 )
-        current_min = ( self.entropy_bits**2  + folded_hash_of_state ) % \
-                        int( self.max_integer * 0.1 )
-
-        # 1/Nth of 30% of the total range
-        delta        = int( ( current_max * .3 ) / self.n_prngs )
-
-        lag = 7   # initial lag.  Even if the primes become > n_prngs,
-                  # it is OK because that wraps around the vector.
+#        entropy_bits = folded_hash_of_state ^ self.entropy_bits
+        constant_generator = generate_constants( self.the_rnt,
+                                                 self.integer_width,
+                                                 self.n_prngs )
         prngs = PRNGs()
-        for i in range( n_prngs ) :
+        for i in range( self.n_prngs ) :
+            multiplier, addition, lag, _ = next( constant_generator )
             # this loop instantiates the prngs
-            if current_max < 0 :
-                current_max = -current_max
-            if current_min < 0 :
-                current_min = -current_min
-            if delta < 0 :      # can't be, why is this here?
-                delta = -delta
-            multiplier   = get_next_higher_prime( current_max )
-            addition     = get_next_higher_prime( current_min )
-            lag          = get_next_higher_prime( lag )
-
             # seed, rnt, integer_width, hash_depth, multiplier, constant, lag 
             # prng_set size, vector_depth,  should be differently different than
             # vector_depth
-            # good enough for now.
-            print( "n_prngs = ", n_prngs, vector_depth,
-                   hex( multiplier ), hex( addition ), hex( delta ), lag, )
+#            print( "n_prngs = ", self.n_prngs, vector_depth,
+#                   hex( multiplier ), hex( addition ), hex( delta ), lag, )
             sys.stdout.flush()
             the_prng = prngs.next( the_rnt, int( self.integer_width ),
                         int( self.vector_depth ), int( paranoia_level ),
                         int( multiplier ), int( addition ), int( lag ) )
 
             self.prng_set.append( the_prng )
-
-            current_max -= delta
-            current_min += delta
-            lag         += 1
-            delta        = get_next_higher_prime( delta )
 
         # steps should be dependent on the pw
         steps = self.the_rnt.password_hash % 64
@@ -708,7 +645,6 @@ class PrngCrypto( LcgCrypto ) :
 
         # We want an index into the bit-width bits, which must be less than
         # bit_width.
-#        bit_selection_mask = bit_width - 1
         return_integer = 0
         self.next_prng %= ( self.n_prngs - 1 )
         for _ in range( steps ) :
@@ -730,14 +666,12 @@ class PrngCrypto( LcgCrypto ) :
                 # mask to select the bit value
                 selected_bit_value = random_value & bit_mask
 
-#                print( "random_value = ", hex( random_value ) )
                 # shift the bit and xor it into the random number
                 shift_distance = selected_bit_index - bit_index
                 if shift_distance > 0 :
                     return_integer ^= selected_bit_value >>  shift_distance
                 else :
                     return_integer ^= selected_bit_value << -shift_distance
-#                print( "return_integer = ", hex( return_integer ) )
 
         self.total_cycles += steps
 
@@ -759,8 +693,10 @@ def generate_random_table( the_rnt, n_bytes, bitwidth ) :
     the_crypto = PrngCrypto( the_rnt, 23, 256, 31, 1 )
 
     # this is 4K bytes as lines of 8-byte words in hexadecimal
-    # 4 words per line
-    for _ in range( int( n_bytes / ( 8 * 4 ) ) ) :
+    # 4 words per line.  The +64*16 is to provide a 16 word margin
+    # that eliminates some checks for accessing information past the
+    # nominal end of the table
+    for _ in range( int( n_bytes / ( 8 * 4 ) ) + 4 ) :
         the_line = ''
         for _ in range( 4 ) :
             the_value = the_crypto.next( bitwidth, 1 )
@@ -828,7 +764,7 @@ if __name__ == "__main__" :
     # need a random factor to prevent repeating pseudo-random sequences
     random.seed()
     PASSPHRASE = PASSWORD + hex( random.getrandbits( 128 ) )
-    THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
+    THE_RNT = RNT( 4096, PASSPHRASE, 'desktop', 1 )
 
     BIN_VECTOR = array.array( 'L' )
     BIN_VECTOR.append( 0 )
@@ -1011,10 +947,28 @@ if __name__ == "__main__" :
         MAX_INT_MASK = ( 1 << 64 ) - 1
         print( hex( MAX_INT_MASK ) )
         HASH = HashCrypto( THE_RNT, 11, 32, 17, 2 )
-        while True :
+        for _ in range( 16 * 1024 * 1024 ) :
             RANDOM0 = HASH.next( 32, 2 )
             RANDOM1 = HASH.next( 32, 2 )
             THE_RANDOM = ( ( RANDOM0 << 32 ) + RANDOM1 ) & MAX_INT_MASK
             BIN_VECTOR[ 0 ] = THE_RANDOM
             BIN_VECTOR.tofile( SO )
 
+    if 'constants' in TEST_LIST :
+        # a test of generate_constants
+        N_PRNGS = 19 
+        for INTEGER_WIDTH in [ 64, 128, 256 ] :
+
+            for N_PRNGS in [ 7, 19, 31 ] :
+                CONSTANT_GENERATOR = generate_constants( THE_RNT, INTEGER_WIDTH,
+                                                         N_PRNGS ) 
+
+                for I in range( N_PRNGS ) :
+                    MULTIPLIER, ADDITION, LAG, DELTA = next( CONSTANT_GENERATOR)
+                    print( I, MULTIPLIER, ADDITION, LAG, DELTA )
+
+                # should return an error
+                try :
+                    MULTIPLIER, ADDITION, LAG, DELTA = next( CONSTANT_GENERATOR)
+                except StopIteration :
+                    print( "StopIteration -- proper result" )

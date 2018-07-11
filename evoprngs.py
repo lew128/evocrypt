@@ -36,12 +36,14 @@ import sys
 import getopt
 import time
 import random
-from array     import array
-from evofolds  import FoldInteger
-from evohashes import HASHES, HASH0
-from evornt    import RNT
-from evoprimes import get_next_higher_prime, get_next_lower_prime
-from evoutils  import print_stacktrace
+import traceback
+import evoutils
+from array        import array
+from evofolds     import FoldInteger
+from evohashes    import HASHES
+from evoprngutils import generate_constants
+from evornt       import RNT
+from evoprimes    import get_next_higher_prime
 
 #SINGLE_PROGRAM_FROM_HERE
 
@@ -109,7 +111,7 @@ class PRNGs() :
 
         # not useless, calculated entropy can only be known to an opponent
         # if they also have the random number table
-        the_rnt = RNT( 4096, 1, 'desktop', "internal password" )
+        the_rnt = RNT( 4096, "internal password", "desktop", 1 )
 
         the_rnt.scramble_list( self.prng_functions )
 
@@ -131,6 +133,15 @@ class PRNGs() :
         return  this_prng( the_rnt, integer_width, prng_depth, paranoia_level,
                             multiplier, constant, lag )
 
+#
+# These first few 'classical' PRNGs pass Dieharder 'out of the box'
+# The goal of my versions is not just to pass Dieharder, but to do so
+# while hiding the internal mechanism.
+# I wouldn't need to do this, as none of the functions here are directy
+# used in encrypting or decrypting, but the goal is to have every
+# element at every level hide its internal workings, it's state, so as
+# to not allow any leakage of any internal state.
+#
 class KnuthMMIX() :
     """
     Linear congruential specified by Knuth in his MMIX.
@@ -162,15 +173,17 @@ class KnuthMMIX() :
         returns a bit-width integer
         """
         return_value = 0
-        while return_value < ( 1 << bit_width * 2 ) :
-            return_value <<= 16
-            for _ in range( steps * self.paranoia_level ) :
+        return_limit = 1 << bit_width * 2
+        shift_width    = int( bit_width / ( 4 *  steps * self.paranoia_level))+1
+        for _ in range( steps * self.paranoia_level ) :
+            while return_value < return_limit :
+                return_value <<= shift_width
                 self.seed = 6364136223846793005 * \
                     self.seed + 1442695040888963407
                 return_value ^= self.seed
+                self.seed &= self.integer_mask
 
             return_value ^= ( self.seed << 16 ) 
-            self.seed &= self.integer_mask
 
         return self.the_fold.fold_it( return_value, bit_width )
 
@@ -210,8 +223,9 @@ class KnuthNewLib() :
         return_value = 0
         # left shift produces very large #s if paranoid and initial spins
         shift_width    = int( bit_width / ( 4 *  steps * self.paranoia_level))+1
-        while return_value < ( 1 << bit_width * 2 ) :
-            for _ in range( steps * self.paranoia_level ) :
+        return_limit = 1 << bit_width * 2
+        for _ in range( steps * self.paranoia_level ) :
+            while return_value < return_limit :
                 # seed0 is stepped 1/2 rate of seed2, same progression.
                 # That makes weird sense, the cycle will be very long,
                 # and if one is random, so is the other. Assumes both
@@ -229,6 +243,9 @@ class KnuthNewLib() :
 
                 self.seed0 &= self.integer_mask
                 self.seed1 &= self.integer_mask
+            # the usual masking to bit_width would leave nothing to be
+            # folded
+            return_value &= return_limit >> shift_width * 4 
 
         return self.the_fold.fold_it( self.seed0 ^ return_value, bit_width )
 
@@ -273,12 +290,14 @@ class LongPeriod5() :
 
     def next( self, bit_width, steps ) :
         """
-        returns a bit-width integer
+        steps the algorithm to compute new prngs, returns a bit-width integer
         """
         return_value = 0
-        while return_value < ( 1 << bit_width * 2 ) :
-            return_value <<= 32
-            for _ in range( steps * self.paranoia_level ) :
+        return_limit = 1 << bit_width * 2
+        shift_width    = int( bit_width / ( 4 *  steps * self.paranoia_level))+1
+        for _ in range( steps * self.paranoia_level ) :
+            while return_value < return_limit :
+                return_value <<= shift_width
                 t = (self.x ^ ( self.x >> 7 ) )
                 self.x  = self.y
                 self.y  = self.z
@@ -287,10 +306,11 @@ class LongPeriod5() :
                 self.v  = ( self.v ^ ( self.v << 6 ) ) ^ ( t ^ ( t << 13 ) )
                 self.v &= self.integer_mask
 
-            return_value ^= ( self.y + self.y + 1 ) * \
-                            self.v & ( ( 1 << bit_width ) - 1 )
+                return_value ^= ( self.y + self.y + 1 ) * self.v 
 
-        return self.the_fold.fold_it( return_value, bit_width )
+            return_value = self.the_fold.fold_it( return_value, bit_width )
+
+        return return_value
 
 class LongPeriod256() :
     """
@@ -351,21 +371,26 @@ class LongPeriod256() :
         a_constant = 809430660
 
         return_value = 0
-        while return_value < ( 1 << bit_width * 2 ) :
-            return_value <<= 32
-            for _ in range( steps * self.paranoia_level ) :
-                # point to the next element of the vector
-                self.next_index = ( self.next_index + 1 ) % 256
+        return_limit = 1 << bit_width * 2
+        shift_width    = int( bit_width / ( 4 *  steps * self.paranoia_level))+1
+        for _ in range( steps * self.paranoia_level ) :
+            while return_value < return_limit :
+                return_value <<= shift_width
+                for _ in range( steps * self.paranoia_level ) :
+                    # point to the next element of the vector
+                    self.next_index = ( self.next_index + 1 ) % 256
 
-                t  = a_constant * self.Q[ self.next_index ] + self.c
-                self.c = ( t >> 32 )
+                    t  = a_constant * self.Q[ self.next_index ] + self.c
+                    self.c = ( t >> 32 )
 
-                t &= self.integer_mask
-                self.Q[ self.next_index ] = t 
+                    t &= self.integer_mask
+                    self.Q[ self.next_index ] = t 
 
-                return_value += t
+                    return_value += t
 
-        return self.the_fold.fold_it( return_value, bit_width )
+            return_value = self.the_fold.fold_it( return_value, bit_width )
+
+        return return_value
 
 class CMWC4096() :
     """
@@ -412,11 +437,14 @@ class CMWC4096() :
         r_constant = 0xfffffffe
 
         return_value = 0
-        while return_value < ( 1 << bit_width * 2 ) :
-            return_value <<= 32
-            for _ in range( steps * self.paranoia_level ) :
+        return_limit = 1 << bit_width * 2
+        shift_width    = int( bit_width / ( 4 * steps * self.paranoia_level)) +1
+        for _ in range( steps * self.paranoia_level ) :
+            while return_value < return_limit :
+                return_value <<= shift_width
                 self.next_index = ( self.next_index + 1 ) & 4095
-                t = a_constant * self.integer_array[ self.next_index ] + self.c
+                t = a_constant * self.integer_array[ self.next_index ] + \
+                                                         self.c
                 self.c = ( t >> 32 )
                 x = t + self.c
                 if x < self.c :
@@ -427,13 +455,14 @@ class CMWC4096() :
 
                 return_value += self.integer_array[ self.next_index ]
 
-        return self.the_fold.fold_it( return_value, bit_width )
+            return_value = self.the_fold.fold_it( return_value, bit_width )
+
+        return return_value
 
 class LCG():
     """
     Class for a Linear Congruential Generator with parameters
     controlling space/time of running.
-
     """
 
     def __init__( self, rnt, integer_width, n_integers, paranoia_level,
@@ -460,9 +489,10 @@ class LCG():
         self.lag                  = lag
         self.index                = 0
 
-        if integer_width <= 32 :    # bad, so apply paranoia
-            self.integer_vector_size  = get_next_higher_prime( 4 * n_integers )
-
+        if integer_width < 64 :    # bad, so apply paranoia
+            print( "integer widths less than 64 bits are prohibited!" )
+            sys.exit( 0 )
+                                                
         # width of the integers in the lcg_array
         self.width_in_bits        = integer_width
         self.width_in_bytes       = integer_width / 8 
@@ -493,7 +523,6 @@ class LCG():
 
         hashes = HASHES( rnt, self.integer_width, self.integer_vector_size )
         the_hash = hashes.next()
-
 
         # each LCG will be unique in these, so uniquely initialized
         the_hash.update( self.entropy )
@@ -542,19 +571,18 @@ class LCG():
         Returns the next pseudo-random bit_width value after steps of
         operation.
 
-        32-bit widths still produce an occassional duplicate, 1 in 16K
-        chance of that randomly.
+        lower-bit return values produce an occassional zero. I am not sure
+        that is bad, but I fixed it.
         """
 
         return_value = 0
-        # 32-bit LCGs are intrinsically not very good, so double the
-        # paranoia
+        all_ffs = ( 1 << bit_width ) - 1
+        before_the_fold = 0 # debug
         n_steps      = steps * self.paranoia_level
-        if self.integer_width <= 32 :
-            n_steps *= 2
+        return_limit = 1 << bit_width * 2
         for _ in range( n_steps ) :
             # this algorithm has a subtle bias to '1' in the hi bit.
-            while return_value < ( 1 << bit_width * 2 ) :
+            while return_value < return_limit :
                 return_value <<= int( self.integer_width / 4 )
 
                 # update the next integer this cycle through
@@ -563,13 +591,13 @@ class LCG():
 
                 # this is a step of the state machine
                 lagged0_index = ( self.index + self.lag ) % \
-                               self.integer_vector_size
+                                  self.integer_vector_size
 
                 new_vector_value = self.integer_vector[ lagged0_index ] * \
                                    self.multiplier + self.constant
 
                 # the shift is crucial to prevent duplicates
-                self.integer_vector[ self.index ] ^= ( new_vector_value >> 5 ) \
+                self.integer_vector[ self.index ] ^= ( new_vector_value >> 5 )\
                                                      & self.max_integer_mask
 
                 # mask for middle bits
@@ -577,21 +605,44 @@ class LCG():
                                    int( self.integer_width / 4 ) )
 
                 # this is a step of the state machine
-                lagged1_index = ( self.index + self.lag + 1 ) % \
-                               self.integer_vector_size
+#                lagged1_index = ( self.index + self.lag + 1 ) % \
+#                               self.integer_vector_size
 
-                new_vector_value = self.integer_vector[ lagged0_index ] * \
+                new_vector_value  = self.integer_vector[ lagged0_index ] * \
                                    self.multiplier + self.constant
+                # overkill
+#                new_vector_value ^= self.integer_vector[ lagged1_index ] * \
+#                                   self.multiplier + self.constant
 
                 # the shift is crucial to prevent duplicates
-                self.integer_vector[ self.index ] ^= ( new_vector_value >> 3 ) \
+                self.integer_vector[ self.index ] ^= ( new_vector_value >> 3 )\
                                                      & self.max_integer_mask
 
                 # mask for middle bits
                 return_value +=  ( new_vector_value >> \
                                    int( self.integer_width / 4 ) )
+                before_the_fold = return_value # debug
+                # once in a very great while, it returns a zero.
 
-        return self.the_fold.fold_it( return_value, bit_width )
+        return_value = self.the_fold.fold_it( return_value, bit_width )
+
+        if return_value == 0 or return_value == all_ffs :
+        
+            # debug from here
+            # this happens for 128-bit values? and the vector does not
+            # have any zeros? WTF?
+            self.dump_state()
+            print( "Zero or all_ffs return value" )
+            print( "before_the_fold  = ", hex( before_the_fold ) )
+            print( "the return_value = ", hex( return_value ) )
+            print( "the_fold = ", self.the_fold )
+            print( traceback.extract_stack() )
+            sys.stdout.flush()
+            # debug to here
+            return_value = self.next( bit_width, steps )
+
+
+        return return_value
 
     def dump_state( self ) :
         """
@@ -623,7 +674,8 @@ class MultiplyAdd00( LCG ) :
         """
 
         return_value = 0
-        while return_value < ( 1 << bit_width * 2 ) :
+        return_limit = 1 << bit_width * 2
+        while return_value < return_limit :
             return_value <<= 16
             for _ in range( steps * self.paranoia_level ) :
                 self.index = ( self.index + 1 ) % self.integer_vector_size
@@ -669,13 +721,13 @@ class MultiplyAdd01( LCG ) :
 
         # these lags handle the case up to 220 integers
         
-        LAG_SETS = [ [  1,  3,  5,  7 ], [  3,  5,  7, 11 ], [  5,  7, 11, 13 ],
+        lag_sets = [ [  1,  3,  5,  7 ], [  3,  5,  7, 11 ], [  5,  7, 11, 13 ],
                      [  7, 11, 13, 17 ], [ 11, 13, 17, 19 ], [ 13, 17, 19, 23 ],
                      [ 17, 19, 23, 29 ], [ 19, 23, 29, 31 ], [ 23, 29, 31, 41 ],
                      [ 29, 31, 41, 43 ], [ 31, 41, 43, 47 ], [ 41, 43, 47, 53 ],
                      [ 43, 47, 53, 59 ], [ 47, 53, 59, 61 ] ]
 
-        for lag_set in LAG_SETS :
+        for lag_set in lag_sets :
             if sum( lag_set ) < self.integer_vector_size :
                 self.lag_set = lag_set
 
@@ -693,7 +745,8 @@ class MultiplyAdd01( LCG ) :
         """
 
         return_value = 0
-        while return_value < ( 1 << bit_width * 2 ) :
+        return_limit = 1 << bit_width * 2
+        while return_value < bit_limit :
             return_value <<= 16
             for _ in range( steps * self.paranoia_level ) :
                 self.index = ( self.index + 1 ) % self.integer_vector_size
@@ -791,8 +844,9 @@ class MultiplyAdd02( MultiplyAdd01 ) :
         """
 
         return_value = 0
+        return_limit = 1 << bit_width * 2
         for _ in range( steps ) :
-            while return_value < ( 1 << bit_width * 2 ) :
+            while return_value < return_limit :
                 return_value <<= 16
                 self.index = ( self.index + 1 ) % self.integer_vector_size
                 self.integer_vector[ self.index ] *= self.multiplier + \
@@ -875,22 +929,25 @@ class MultiplyAdd03( MultiplyAdd02 ) :
         self.multipliers = []
         self.additions   = []
 
-        big_prime     = multiplier
-        small_prime   = addition
+        # copied this code from evocprngs.py, PrngCrypto. Should common
+        # it out in a function. Pass in the vector 
+        # get back the two filled lists.
+        # initialized, but no update is sort of OK
+#        hashes = HASHES( rnt, self.integer_width, self.n_integers )
+#        the_hash = hashes.next()
+#        hash_of_state = the_hash.intdigest()
 
-        # range of top and bottom quartiles
-        print( "integer_width = ", integer_width )
-        sys.stdout.flush()
-        increment = int( rnt.randint( int( integer_width ) ) / n_integers )
-        increment >>= 4
-        print( "increment = ", hex( increment ) )
-        sys.stdout.flush()
+        # an additional bit of randomness
+#        folded_hash_of_state = self.the_fold.fold_it( hash_of_state,
+#                                            integer_width )
+#        entropy_bits = folded_hash_of_state ^ rnt.password_hash
 
+        constant_generator = generate_constants( rnt, self.integer_width, 
+                                                 self.n_integers )
         for _ in range( n_integers ) :
-            self.multipliers.append( get_next_higher_prime(
-                                     int( big_prime   + increment ) ) )
-            self.additions.append( get_next_higher_prime(
-                                   int( small_prime + increment ) ) )
+            multiplier, addition, lag, delta = next( constant_generator )
+            self.multipliers.append( multiplier )
+            self.additions.append(   addition )
 
 
     def name( self ) :
@@ -906,8 +963,9 @@ class MultiplyAdd03( MultiplyAdd02 ) :
         """
 
         return_value = 0
+        return_limit = 1 << bit_width * 2
         for _ in range( steps ) :
-            while return_value < ( 1 << bit_width * 2 ) :
+            while return_value < return_limit :
                 return_value = return_value << int( bit_width / 4 )
                 self.index      = ( self.index      + 1 ) % \
                                     self.integer_vector_size
@@ -979,7 +1037,8 @@ class MultiplyAdd04( MultiplyAdd03 ) :
 
 
         return_value = 0
-        while return_value < ( 1 << bit_width * 2 ) :
+        return_limit = 1 << bit_width * 2
+        while return_value < return_limit :
             for _ in range( steps ) :
                 return_value    <<= 32
                 self.index      = ( self.index      + 1 ) % \
@@ -1136,7 +1195,7 @@ if __name__ == "__main__" :
     random.seed()
 
     PASSWORD += hex( random.getrandbits( 128 ) )
-    THE_RNT = RNT( 4096, 1, 'desktop', PASSWORD )
+    THE_RNT = RNT( 4096, PASSWORD, 'desktop', 1 )
     BIN_VECTOR = array( 'L' )
     BIN_VECTOR.append( 0 )
     SO = os.fdopen( sys.stdout.fileno(), 'wb' )
@@ -1147,7 +1206,7 @@ if __name__ == "__main__" :
         # be formed. This level just hides the details of each one
         # behind a function indirect call.
 
-        THE_PRNGs = PRNGs()
+        THE_PRNGS = PRNGs()
 
         random.seed()       # includes local entropy, so this doesn't repeat
 
@@ -1172,7 +1231,7 @@ if __name__ == "__main__" :
                         LAG = INT_VECTOR_DEPTH >> 1
 
                         
-                        THIS_PRNG = THE_PRNGs.next( THE_RNT, INTEGER_WIDTH,
+                        THIS_PRNG = THE_PRNGS.next( THE_RNT, INTEGER_WIDTH,
                                         INT_VECTOR_DEPTH, PARANOIA_LEVEL,
                                         BIG_PRIME, SMALL_PRIME, LAG )
 
@@ -1199,7 +1258,7 @@ if __name__ == "__main__" :
 
             BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER 
             BIN_VECTOR.tofile( SO )
-#            print( hex( THE_RANDOM_NUMBER )
+#            print( hex( THE_RANDOM_NUMBER ) )
 
     if 'newlib' in TEST_LIST :
         # 8.17e+05 rands / second, very slow
@@ -1251,6 +1310,7 @@ if __name__ == "__main__" :
 
             BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
             BIN_VECTOR.tofile( SO )
+#            print( hex( THE_RANDOM_NUMBER ) )
 
     if 'lp256' in TEST_LIST :
         # I have generalized these, need to test as 64- and 128-bit widths

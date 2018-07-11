@@ -182,11 +182,18 @@ def usage() :
     """
     usage_info = """
 
+        --help
+            produces this text
+
+        --password
+            A password to be used in future tests, not used yet.
+
         --test  <test name>
             adds a test to the list to be executed. can be repeated.
             
             Current tests are:
-                'code'  encodes, then decodes plain text
+                'simple', 'fold', 'foldit', 'patterns', 'xor0','xor1'
+                'add0' 'add1'
     """
     print( usage_info )
 
@@ -302,7 +309,7 @@ if __name__ == "__main__" :
 
     PASSPHRASE = 'this is a passphrase' + hex( random.getrandbits( 128 ) )
 
-    THE_RNT = RNT( 4096, 2, 'desktop', PASSPHRASE )
+    THE_RNT = RNT( 4096, PASSPHRASE, 'desktop', 2 )
     # ( password, integer_width, hash_depth )
     # conservative wrt entropy, only 3x the 64 bits and 11 deep
     THE_HASH = HASH0( THE_RNT, 192, 11 )

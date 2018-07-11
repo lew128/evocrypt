@@ -31,9 +31,11 @@ import math
 import traceback
 import copy
 import getopt
-#import random
-from evoutils import debug, print_stacktrace, print_stacktrace_exit
-from evofolds import FoldInteger
+import random
+import time
+from array     import array
+from evoutils  import debug, print_stacktrace, print_stacktrace_exit
+from evofolds  import FoldInteger
 from evohashes import HASH0
 
 #SINGLE_PROGRAM_FROM_HERE
@@ -358,7 +360,7 @@ class WichmannHill(object):
         while return_value < desired_size :
             # problem is making this produce int_width numbers, as it is
             # intrinsically a long float's faction.
-            for j in range( steps ) :
+            for _ in range( steps ) :
                 for i, seed in enumerate( self.seeds ):
                     seed = self.mix_0[ i ] * ( seed % self.mix_1[ i ] ) - \
                            self.mix_2[ i ] * ( seed / self.mix_1[ i ] )
@@ -437,7 +439,7 @@ class PasswordHash :
         # Wichmann-Hill mixed with the password to produce an initial
         # password hash.
         rnt_bit_index = 1
-        for cycle in range( the_rnt.paranoia_level ) :
+        for _ in range( the_rnt.paranoia_level ) :
             for this_byte in password :
 
                 rnt_bit_index += \
@@ -466,7 +468,7 @@ class PasswordHash :
         # Wichmann-Hill mixed with the passphrase to produce an initial
         # passphrase hash.
         rnt_bit_index = 1
-        for cycle in range( the_rnt.paranoia_level ) :
+        for _ in range( the_rnt.paranoia_level ) :
             for this_byte in passphrase :
 
                 rnt_bit_index += \
@@ -490,8 +492,8 @@ class RNT() :
     Operations on the Random Number Tables
     """
 
-    def __init__( self, desired_rnt_bytes, paranoia_level, system_type,
-                  passphrase ) :
+    def __init__( self, desired_rnt_bytes, passphrase, system_type,
+                  paranoia_level ) :
         """
         Transforms the password into random integers within certain bounds
         with a mechansism that ties it to this particular program.
@@ -581,7 +583,7 @@ class RNT() :
         # At this point, the rnt has sufficient entropy to continue
 
         # replace the table with one of the desired size 
-        for i in range( self.paranoia_level ) :
+        for _ in range( self.paranoia_level ) :
             an_integer = self.randint( 64 )
             self.hash.update( an_integer )
 
@@ -723,7 +725,7 @@ class RNT() :
         More tests of the fold as a first step.
         """
         return_integer = 0
-        for cycle in range( self.paranoia_level ) :
+        for _ in range( self.paranoia_level ) :
             self.randint_index_0 += self.wichmann.next( 1, 
                                                         self.bits_in_rnt_mask )
 
@@ -878,7 +880,7 @@ class RNT() :
         """
 
         return_integer = 0
-        for cycle in range( self.paranoia_level ) :
+        for _ in range( self.paranoia_level ) :
 
             # from the entropy_bits retrieve a RNT index for the bit-string.
             rnt_bit_index = entropy_bits & ( self.rnt_bit_index_mask )
@@ -987,16 +989,16 @@ def construct_clean_lines( input_fd ) :
 def rnt_rate( the_function, result_width, n_results ) :
     """
     The_function is one of the crypto or PRNG functions with a 'next'.
-    Result_width is the desired width of the result of that function in
-bits.
+    Result_width is the desired width of the result of that function in bits.
     N is the number of results to compute before returning bytes/second.
     """
     beginning_time = int( time.time() )
-    for i in range( n_results ) :
-        this_result = the_function( result_width )
+    for _ in range( n_results ) :
+        _ = the_function( result_width )
     ending_time = int( time.time() )
 
-    return ( n_results * ( result_width / 8 ) ) / ( ending_time - beginning_time )
+    return ( n_results * ( result_width / 8 ) ) \
+             / ( ending_time - beginning_time )
 
 
 #SINGLE_PROGRAM_TO_HERE
@@ -1021,10 +1023,6 @@ def usage() :
 #
 if __name__ == "__main__" :
 
-    from array import array
-    import random
-    import time
-                               
     BIN_VECTOR = array( 'L' )
     BIN_VECTOR.append( 0 )
 
@@ -1082,7 +1080,7 @@ if __name__ == "__main__" :
 
     PASSPHRASE = 'this is a seed' + hex( random.getrandbits( 128 ) )
 
-    THE_RNT = RNT( 4096, 1, 'desktop', PASSPHRASE )
+    THE_RNT = RNT( 4096, PASSPHRASE, 'desktop', 1 )
 
     if 'randint' in TEST_LIST :
 

@@ -124,7 +124,7 @@ def print_stacktrace() :
     """
     stack = traceback.extract_stack()
 
-    debug( "stack trace", stack, 0 )
+#    debug( "stack trace", stack, 0 )
     print( "stack", stack )
 
 def print_stacktrace_exit( message, variable ) :
@@ -150,7 +150,6 @@ def usage() :
                 'code'  encodes, then decodes plain text
     """
     print( usage_info )
-
 
 
 #

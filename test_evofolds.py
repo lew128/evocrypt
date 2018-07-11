@@ -2,6 +2,10 @@
 
 import sys
 import unittest
+import random
+from   evornt   import RNT
+from   evofolds import FoldInteger
+
 
 
 class TestEvofolds( unittest.TestCase ) :
@@ -10,8 +14,10 @@ class TestEvofolds( unittest.TestCase ) :
 
         # instantiate a random number table
         # hard code desired RNT bytes and paranoia level for now
-        self.the_rnt = RNT( 4096, 2, 'desktop', 'TestEvoFolds' )
-
+        random.random()
+        password = 'TestEvoCrypt' + hex( random.getrandbits( 128 ) )
+        self.the_rnt = RNT( 4096, password, 'desktop', 2 )
+                                 
         self.the_fold = FoldInteger( )
 
     def test_next( self ) :
@@ -112,9 +118,6 @@ if __name__ == '__main__':
 
     import os
     sys.path.insert( 0, '/home/lew/EvoCrypt' )
-
-    from evornt   import RNT
-    from evofolds import FoldInteger
 
     unittest.main()
 

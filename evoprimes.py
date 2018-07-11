@@ -25,7 +25,7 @@ import random
 import math
 import sys
 import traceback
-from evoutils import print_stacktrace
+import evoutils
 
 #SINGLE_PROGRAM_FROM_HERE
 
@@ -198,7 +198,7 @@ def generate_large_prime(k):
         if is_prime( n ) == True:
             return n
 
-    return "Failure after "+ r_ + " tries."
+    return "Failure after "+ str( r_ ) + " tries."
 
 def get_next_higher_prime( beginning_integer ) :
     """
@@ -211,7 +211,7 @@ def get_next_higher_prime( beginning_integer ) :
     begin_integer = int( beginning_integer )
     if begin_integer < 0 :
         print( "negative beginning_integer", hex( begin_integer ) )
-        print_stacktrace()
+        evoutils.print_stacktrace()
         sys.exit( -1 )
 
     # if even, make it odd
@@ -230,7 +230,7 @@ def get_next_higher_prime( beginning_integer ) :
 
     print( "Failure after 1000 tries." )
     print( "begin_integer = ", hex( begin_integer ) )
-    print_stacktrace()
+    evoutils.print_stacktrace()
 
 def get_next_lower_prime( beginning_integer ) :
     """
@@ -243,7 +243,7 @@ def get_next_lower_prime( beginning_integer ) :
     begin_integer = int( beginning_integer )
     if begin_integer < 0 :
         print( "negative beginning_integer", hex( begin_integer ) )
-        print_stacktrace()
+        evoutils.print_stacktrace()
         sys.exit( -1 )
 
     # if even, make it odd
@@ -262,7 +262,7 @@ def get_next_lower_prime( beginning_integer ) :
 
     print( "Failure after 1000 tries." )
     print( "begin_integer = ", hex( begin_integer ) )
-    print_stacktrace()
+    evoutils.print_stacktrace()
 
 #SINGLE_PROGRAM_TO_HERE
 
