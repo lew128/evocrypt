@@ -746,7 +746,7 @@ class MultiplyAdd01( LCG ) :
 
         return_value = 0
         return_limit = 1 << bit_width * 2
-        while return_value < bit_limit :
+        while return_value < return_limit :
             return_value <<= 16
             for _ in range( steps * self.paranoia_level ) :
                 self.index = ( self.index + 1 ) % self.integer_vector_size

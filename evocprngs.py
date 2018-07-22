@@ -429,7 +429,10 @@ class HashCrypto( LcgCrypto ) :
         self.total_cycles         = 0
         self.hash_function_vector = []
 
-        self.the_fold              = FoldInteger()
+        self.the_fold             = FoldInteger()
+
+        # used in next() to begin the update cycle
+        self.rnt_index            = 0
 
         # fill the hash_function_vector with instantiated hash functions
         the_hashes = HASHES( the_rnt, integer_width, vector_depth )
@@ -440,72 +443,219 @@ class HashCrypto( LcgCrypto ) :
         for i in range( len( self.hash_function_vector ) ) :
             self.hash_function_vector[ i ].update(
                 the_rnt.password_hash * i + i )
-                                       
+            # accumulate some more entropy
+            self.rnt_index ^= the_rnt.password_hash * i + i
+
+        self.rnt_index %= the_rnt.rnt_bit_size
+
         # initial steps should be dependent on the password
         self.next( 64, self.the_rnt.password_hash % 64 )
 
 
     def next( self, bit_width, steps ) :
         """
-        Returns the xors of steps random numbers in the next_integer
-        positions, masked to bit_width.
+        The previous next() produced lousy random streams by my tests,
+        this will use a different approach, better use of the total
+        state of the set of hashes.
 
-        This consistently has one duplicate at 32-bits.
-
-        So I started the 'hash32' dieharder test about 9AM WEd 27 June
-        and also the mods to test_evoprngs.py's checkfunction routine so
-        the sample size is 16 * 1024 * 1024. That got through generating
-        16 M randoms about 10AM, and has been working on checking
-        duplicates ever since. No dups yet.
-        
-        Will let that run indefinitely, every hour gives me more info about
-        the quality of hash32 as a prng. I nearly always let the
-        dieharder tests run to completion, I currently have ultra-slow tests
-        from 21 May and 9 June.
+        Algorithm :
+            Get an initial 64 bits from the RNT, maintain an index
+            incremented by a small prime wrapping around.
+            Use that to begin the cycle of updating successive hash and
+            extracting an intdigest.
         """
-
-        return_value = 0
-        return_limit = 1 << bitwidth*2
+        return_limit = 1 << ( bit_width * 2 )
+        return_value = self.the_rnt.bit_string_from_randoms(
+                                                    self.rnt_index, bit_width )
+        self.rnt_index = ( self.rnt_index + self.n_prngs ) % \
+                           self.the_rnt.rnt_bit_size
+        # initial return_value is smaller than the return_limit
         for i in range( steps ) : 
             while return_value < return_limit :
-                sys.stdout.flush()
-                return_value = return_value << int( bit_width / 4 )
                 self.next_hash = ( self.n_prngs + 1 ) % self.n_prngs
-
-                # if the application uses prime values for the depth, any
-                # number will do.  Otherwise, 3 and 7 are at least rel-prime
-                rnt_addr0 = ( self.next_hash + i + 3 ) % self.vector_depth
-                rnt_addr1 = ( self.next_hash + i + 7 ) % self.vector_depth
-                sys.stdout.flush()
-
                 this_hash = self.hash_function_vector[ self.next_hash ]
+                this_hash.update( return_value )
 
-                # I don't like reaching into the hash's data structures
-                update_value  = this_hash.integer_vector[ rnt_addr0 ]
-                entropy_bits  = this_hash.integer_vector[ rnt_addr1 ]
-                # the hash update is the slow part. RNT is to prevent cycles
-                update_value += self.the_rnt.next_random_value( entropy_bits,
-                                                            self.integer_width )
-
-                # fold to 32 bits, probably still overkill
-                four_byte_update = 0
-                while update_value != 0 :
-                    # another link in the code breaker's logic chains
-                    # costs a test and branch, nearly nothing.
-                    if update_value & 0x01 :
-                        four_byte_update ^= update_value & 0xFFFFFFFF
-                    else :
-                        four_byte_update += update_value & 0xFFFFFFFF
-                    update_value >>= 32
-
-                # update this_hash function
-                this_hash.update( four_byte_update )
-
-                # this could take a while for a wide request vs narrow
-                # hashes, but that would be a misuse, so this is OK.
                 return_value += this_hash.intdigest()
 
+            # return_value is reset to < return limit with a fold, so
+            # accumulates entropy
+            return_value = self.the_fold.fold_it( return_value, bit_width )
+
+        # final fold for the generated return value
         return self.the_fold.fold_it( return_value, bit_width )
+
+#    def next1( self, bit_width, steps ) :
+#        """
+#        Returns the xors of steps random numbers in the next_integer
+#        positions, masked to bit_width.
+#
+#        This consistently has one duplicate at 32-bits.
+#
+#        So I started the 'hash32' dieharder test about 9AM WEd 27 June
+#        and also the mods to test_evoprngs.py's checkfunction routine so
+#        the sample size is 16 * 1024 * 1024. That got through generating
+#        16 M randoms about 10AM, and has been working on checking
+#        duplicates ever since. No dups yet.
+#        
+#        Will let that run indefinitely, every hour gives me more info about
+#        the quality of hash32 as a prng. I nearly always let the
+#        dieharder tests run to completion, I currently have ultra-slow tests
+#        from 21 May and 9 June.
+#
+#        Checking program shows this to degenerate into cycles because of
+#        all zeros in the low-order bits, e.g. 
+#        dup at  8388482 0xfffc5c0000000000
+#        dup at  8388487 0xfffc740000000000
+#        dup at  8388497 0xfffca70000000000
+#        dup at  8388500 0xfffcae0000000000
+#        dup at  8388507 0xfffcc60000000000
+#        dup at  8388512 0xfffcd80000000000
+#        dup at  8388517 0xfffce30000000000
+#        dup at  8388519 0xfffcea0000000000
+#        dup at  8388522 0xfffcf40000000000
+#        dup at  8388525 0xfffd000000000000
+#        dup at  8388531 0xfffd110000000000
+#        dup at  8388546 0xfffd560000000000
+#        dup at  8388556 0xfffd750000000000
+#        dup at  8388564 0xfffd970000000000
+#        dup at  8388566 0xfffd9a0000000000
+#        dup at  8388587 0xfffe040000000000
+#        dup at  8388590 0xfffe110000000000
+#        dup at  8388598 0xfffe400000000000
+#        dup at  8388603 0xfffe5d0000000000
+#        dup at  8388607 0xfffe6a0000000000
+#        dup at  8388619 0xfffe8c0000000000
+#        dup at  8388644 0xfffee40000000000
+#        dup at  8388677 0xffff9b0000000000
+#        dup at  8388685 0xffffbc0000000000
+#        dup at  8388694 0xffffe80000000000
+#
+#        OK, maybe good hashes are more difficult than I thought, tho the
+#        amount of time I have invested in them is not great.
+#
+#        So, the first thing to do is to be sure I haven't been fooling
+#        myself about the rest of these Crypto functions, and to check to
+#        be sure that dieharder detects this.  Will be fairly
+#        disappointed if it does not. I have the hash output in a file,
+#        try that first.
+#
+#        Well, well, well. Revelations everywhere today.  First, running
+#        from file input is very fast, a few minutes for -a tests.
+#        Second, it doesn't take that many randoms, 67MB is more than
+#        enough. Slow the generation of those files are, it is much
+#        faster than running directly to diharder. That means that the
+#        overhead of piping from generator stdout to dieharder stdin is
+#        quite large. Big disk are easy and cheap, so we save time
+#        generating files, even if only used once for dieharder.
+#
+#        Third, dieharder is shit if it doesn't see the non-randoms my
+#        simple checks show. Does NSA control dieharder? Or does dieharder
+#        only see things from the pov of 'adequately random for models
+#        and Newtonian integrations', not the NSA-resistant
+#        'adequtely random to resist cryptology'? Or both?
+#
+#        A year ago or so, I did a lot of code for checking randoms, need
+#        to resurrect that, I can't trust dieharder any longer.
+#
+#        Marvey, the project just turned in a different direction, I made
+#        assumptions which are very wrong. Now months ahead of me, not
+#        weeks. Resurrect my statistics courses.
+#
+#        I need to get this into github, just in case anyone wants to
+#        begin using it, it is not anyplace close to secure crypto yet.
+#
+#        Your assumptions get you every time, it is so hard to overcome
+#        your own understandings. I have said many times that  isn't
+#        possible to be paranoid enough, but you should damn well try.
+#
+#        Again, I failed to be paranoid enough. I hate that. There is a
+#        Lebowski Enlightenment in here somewhere.
+#
+#        CryptoPrng also has lots of dups, tho these don't look like
+#        cycles, rather too-few bits changing, degenerate cases of values
+#        it can't recover from, e.g.
+#        dup at  14981665 0x78300a6666653966
+#        dup at  14981674 0x78300a6666656237
+#        dup at  14981679 0x78300a6666656332
+#        dup at  14981684 0x78300a6666656339
+#        dup at  14981685 0x78300a6666656339
+#        dup at  14981693 0x78300a6666656532
+#        dup at  14981700 0x78300a6666656663
+#        dup at  14981701 0x78300a6666656663
+#        dup at  14981705 0x78300a6666663062
+#        dup at  14981715 0x78300a6666663232
+#        dup at  14981718 0x78300a6666663237
+#        dup at  14981721 0x78300a6666663265
+#        dup at  14981739 0x78300a6666663661
+#        dup at  14981740 0x78300a6666663661
+#        dup at  14981743 0x78300a6666663664
+#        dup at  14981745 0x78300a6666663731
+#        dup at  14981747 0x78300a6666663732
+#        dup at  14981748 0x78300a6666663732
+#        dup at  14981756 0x78300a6666663836
+#        dup at  14981761 0x78300a6666663864
+#        dup at  14981768 0x78300a6666666133
+#        dup at  14981789 0x78300a6666666461
+#        dup at  14981801 0x78300a6666666636
+#
+#        LcgCrypto is OK, both by my tests and dieharder.
+#
+#        the 1hex version
+#        """
+#
+#        return_value = 0
+#        return_limit = 1 << ( bit_width * 2 )
+#        for i in range( steps ) : 
+#            while return_value < return_limit :
+#                sys.stdout.flush()
+#                return_value = return_value << int( bit_width / 4 )
+#                self.next_hash = ( self.n_prngs + 1 ) % self.n_prngs
+#
+#                # if the application uses prime values for the depth, any
+#                # number will do.  Otherwise, 3 and 7 are at least rel-prime
+#                rnt_addr0 = ( self.next_hash + i + 3 ) % self.vector_depth
+#                rnt_addr1 = ( self.next_hash + i + 7 ) % self.vector_depth
+#                sys.stdout.flush()
+#
+#                this_hash = self.hash_function_vector[ self.next_hash ]
+#
+#                # I don't like reaching into the hash's data structures
+#                update_value  = this_hash.integer_vector[ rnt_addr0 ]
+#                entropy_bits  = this_hash.integer_vector[ rnt_addr1 ]
+#                # the hash update is the slow part. RNT is to prevent cycles
+#                # but it doesn't, I just found.
+#                update_value += self.the_rnt.next_random_value( entropy_bits,
+#                                                            self.integer_width )
+#
+#                # fold to 32 bits, probably still overkill
+#                four_byte_update = 0
+#                while update_value != 0 :
+#                    # another link in the code breaker's logic chains
+#                    # costs a test and branch, nearly nothing.
+#                    if update_value & 0x01 :
+#                        four_byte_update ^= update_value & 0xFFFFFFFF
+#                    else :
+#                        four_byte_update += update_value & 0xFFFFFFFF
+#                    update_value >>= 32
+#
+#                # update this_hash function. Simple attempt to fix the
+#                # cycles, added hex(). Test our way to success,
+#                # understand later, tried and true tactics for sw engineers
+#                # since the beginning of the profession. Everything
+#                # Brooke's Mythical Man-Month taught us to avoid.
+#                # the additon of the hex() makes the random numbers in
+#                # the generated file terrible, many zeros, ... 48MB of
+#                # output, but dieharder thinks it passes everything.
+#                # So it seems likely I am mis-using dieharder, but 
+#                # the man page does not reveal how, seems straightforward.
+#                this_hash.update( four_byte_update )
+#
+#                # this could take a while for a wide request vs narrow
+#                # hashes, but that would be a misuse, so this is OK.
+#                return_value += this_hash.intdigest()
+#
+#        return self.the_fold.fold_it( return_value, bit_width )
 
 
 class PrngCrypto( LcgCrypto ) :
@@ -645,7 +795,7 @@ class PrngCrypto( LcgCrypto ) :
 
         # We want an index into the bit-width bits, which must be less than
         # bit_width.
-        return_integer = 0
+        return_value = 0
         self.next_prng %= ( self.n_prngs - 1 )
         for _ in range( steps ) :
             for bit_index in range( bit_width ) :
@@ -669,14 +819,15 @@ class PrngCrypto( LcgCrypto ) :
                 # shift the bit and xor it into the random number
                 shift_distance = selected_bit_index - bit_index
                 if shift_distance > 0 :
-                    return_integer ^= selected_bit_value >>  shift_distance
-                else :
-                    return_integer ^= selected_bit_value << -shift_distance
+                    return_value ^= selected_bit_value >>  shift_distance
+                # first experiment, take this out. Testing to success,
+                # etc.
+#                else :
+#                    return_value ^= selected_bit_value << -shift_distance
 
         self.total_cycles += steps
 
-        # Steps writes over the bits, so the integer is bit_width wide
-        return return_integer
+        return self.the_fold.fold_it( return_value, bit_width )
 
 def dump_state( self ) :
     """ Debug code """
@@ -725,7 +876,7 @@ def usage() :
     """
     print( usage_info )
 
-CRYPTO_PRNG_FUNCTIONS = [ HashCrypto, LcgCrypto ]
+#CRYPTO_PRNG_FUNCTIONS = [ HashCrypto, LcgCrypto ]
 #CRYPTO_PRNG_FUNCTIONS = [ HashCrypto, TwisterCrypto, LcgCrypto ]
 
 
@@ -734,39 +885,53 @@ CRYPTO_PRNG_FUNCTIONS = [ HashCrypto, LcgCrypto ]
 
 if __name__ == "__main__" :
 
-    SHORT_ARGS = "hp="
-    LONG_ARGS  = [  'help' , 'password=', 'test=' ]
+    SHORT_ARGS = "hn=p=t="
+    LONG_ARGS  = [ 'help', 'n_randoms=', 'password=', 'test=' ]
 
     sys.stderr.write( '#' + __filename__ + '\n' )
     sys.stderr.write( '#' + __version__ + '\n' )
     sys.stderr.write( '#' + str( sys.argv[ 1 : ] ) + '\n' )
 
-    TEST_LIST = []      # list of tests to execute
-    PASSWORD  = ''
+    TEST_LIST                 = []      # list of tests to execute
+    PASSWORD                  = ''
+    DESIRED_NUMBER_OF_RANDOMS = 1024*1024*1024*1024 # default for dieharder
+
     try :
         OPTS, ARGS = getopt.getopt( sys.argv[ 1 : ], SHORT_ARGS, LONG_ARGS )
 
     except getopt.GetoptError as err :
+        print( "except on OPTS" )
         sys.stderr.write( "getopt.GetoptError = " + str( err ) )
         sys.exit( -2 )
 
+    print( "begin OPTS" )
     for o, a in OPTS :
+        print( o, a )
         if o in ( "--help" ) or o in ( "-h" ) :
             usage()
             sys.exit( -2 )
 
-        if o in ( "--test") :
+        if o in ( "--n_randoms" ) or o in ( "-n" ) :
+            print( a )
+            DESIRED_NUMBER_OF_RANDOMS = int( a )
+
+        if o in ( "--password" ) or o in ( "-p" ) :
+            PASSWORD = a
+
+        if o in ( "--test" ) or o in ( "-t" ):
             TEST_LIST.append( a )
 
-        if o in ( "--password") or o in ( "-p" ) :
-            PASSWORD = a
+    print( "DESIRED_NUMBER_OF_RANDOMS = ", DESIRED_NUMBER_OF_RANDOMS )
+    print( "PASSWORD                  = ", PASSWORD )
+    print( "TEST_LIST                 = ", TEST_LIST )
+    sys.stdout.flush()
 
     # need a random factor to prevent repeating pseudo-random sequences
     random.seed()
     PASSPHRASE = PASSWORD + hex( random.getrandbits( 128 ) )
     THE_RNT = RNT( 4096, PASSPHRASE, 'desktop', 1 )
 
-    BIN_VECTOR = array.array( 'L' )
+    BIN_VECTOR = array.array( 'Q' )     # now emits long long
     BIN_VECTOR.append( 0 )
 
     SO = os.fdopen( sys.stdout.fileno(), 'wb' )
@@ -787,12 +952,32 @@ if __name__ == "__main__" :
         THE_LCG = LcgCrypto( THE_RNT, N_LCGS, INTEGER_WIDTH, LCG_DEPTH,
                               PARANOIA_LEVEL ) 
 
-        while True :
-            THE_RANDOM_NUMBER = THE_LCG.next( INTEGER_WIDTH, 1 )
-            THE_RANDOM_NUMBER &= ( 1 << 64 ) - 1
+        LO_MASK_64_BITS = ( 1 << 64 ) - 1 
+        HI_MASK_64_BITS = LO_MASK_64_BITS << 64
 
-            BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
+        COUNTER = 0
+        while True :
+            
+            THE_RANDOM_NUMBER = THE_LCG.next( INTEGER_WIDTH, 1 )
+
+            # the strategy here is to put out the entire 128-bit 
+            # integer to be sure both halves are OK. 
+            # I would do the entire thing at once, but don't see how to
+            # make the array.array handle those. This approach does not 
+            # preserve little-endian, but the goal is checking 64 bits
+            # segments so I don't care.
+            THE_EMITTED_NUMBER = THE_RANDOM_NUMBER & LO_MASK_64_BITS
+            BIN_VECTOR[ 0 ] = THE_EMITTED_NUMBER
             BIN_VECTOR.tofile( SO )
+
+            THE_EMITTED_NUMBER = ( THE_RANDOM_NUMBER & HI_MASK_64_BITS ) >> 64
+            BIN_VECTOR[ 0 ] = THE_EMITTED_NUMBER
+            BIN_VECTOR.tofile( SO )
+
+            COUNTER += 2 # count 64-bit randoms
+            if COUNTER >= DESIRED_NUMBER_OF_RANDOMS :
+                break
+
 #            print( hex( THE_RANDOM_NUMBER )
 
     if 'lcg_crypto_rate' in TEST_LIST :
@@ -815,22 +1000,37 @@ if __name__ == "__main__" :
                                PARANOIA_LEVEL ) 
         sys.stderr.write( "THE_PRNG = " + str( THE_PRNG ) + '\n'  )
 
+        LO_MASK_64_BITS = ( 1 << 64 ) - 1 
+        HI_MASK_64_BITS = LO_MASK_64_BITS << 64
+
+        COUNTER = 0
         while True :
 #            sys.stderr.write( "calling next " + '\n' )
             THE_RANDOM_NUMBER = THE_PRNG.next( INTEGER_WIDTH, 1 )
-            THE_RANDOM_NUMBER &= ( 1 << 64 ) - 1
+            print( hex( THE_RANDOM_NUMBER ) )
+            sys.stdout.flush()
 
-            BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
+            THE_EMITTED_NUMBER = THE_RANDOM_NUMBER & LO_MASK_64_BITS
+            BIN_VECTOR[ 0 ] = THE_EMITTED_NUMBER
             BIN_VECTOR.tofile( SO )
+
+            THE_EMITTED_NUMBER = ( THE_RANDOM_NUMBER & HI_MASK_64_BITS ) >> 64
+            BIN_VECTOR[ 0 ] = THE_EMITTED_NUMBER
+            BIN_VECTOR.tofile( SO )
+
+            COUNTER += 2
+            if COUNTER >= DESIRED_NUMBER_OF_RANDOMS :
+                break
+
 #            sys.stdout.write( hex( THE_RANDOM_NUMBER ) + '\n'  )
 
     if 'prng_crypto_rate' in TEST_LIST :
-        VECTOR_DEPTH       = 19
-        INTEGER_WIDTH = 128
+        N_HASHES       = 19
+        INTEGER_WIDTH  = 128
         PRNG_DEPTH     = 31
         PARANOIA_LEVEL = 1
         DIEHARDER_MAX_INTEGER   = ( 1 << 64 ) - 1
-        THE_PRNG = PrngCrypto( THE_RNT, VECTOR_DEPTH, INTEGER_WIDTH, PRNG_DEPTH,
+        THE_PRNG = PrngCrypto( THE_RNT, N_HASHES, INTEGER_WIDTH, PRNG_DEPTH,
                                PARANOIA_LEVEL ) 
 
         print( 'prng crypto byte rate = ',
@@ -841,12 +1041,28 @@ if __name__ == "__main__" :
         INTEGER_WIDTH  = 128
         HASH_DEPTH     = 31
         PARANOIA_LEVEL = 1
-        THE_HASH_CRYPTO = HashCrypto( THE_RNT, 19, 64, 11, 1 )
+        THE_HASH_CRYPTO = HashCrypto( THE_RNT, N_HASHES, INTEGER_WIDTH,
+                                      HASH_DEPTH, PARANOIA_LEVEL )
 
+        LO_MASK_64_BITS = ( 1 << 64 ) - 1 
+        HI_MASK_64_BITS = LO_MASK_64_BITS << 64
+
+        COUNTER = 0
         while True :
             THE_RANDOM_NUMBER = THE_HASH_CRYPTO.next( 64, 1 )
-            BIN_VECTOR[ 0 ] = THE_RANDOM_NUMBER
+
+            THE_EMITTED_NUMBER = THE_RANDOM_NUMBER & LO_MASK_64_BITS
+            BIN_VECTOR[ 0 ] = THE_EMITTED_NUMBER
             BIN_VECTOR.tofile( SO )
+
+            THE_EMITTED_NUMBER = ( THE_RANDOM_NUMBER & HI_MASK_64_BITS ) >> 64
+            BIN_VECTOR[ 0 ] = THE_EMITTED_NUMBER
+            BIN_VECTOR.tofile( SO )
+
+            COUNTER += 2
+            if COUNTER >= DESIRED_NUMBER_OF_RANDOMS :
+                break
+
 #            print( hex( THE_RANDOM_NUMBER ) )
 
 
@@ -905,7 +1121,7 @@ if __name__ == "__main__" :
             LOG_FD   = open( 'Encode3.log', 'w' )
 
         except IOError as the_error :
-            ERRNO, STRERROR = the_error.args
+            STRERROR = the_error.args
             print( " error '" + STRERROR + "'" )
             sys.exit( -2 )
 

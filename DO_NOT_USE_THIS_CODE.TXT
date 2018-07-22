@@ -1,0 +1,22 @@
+DO NOT USE THIS CODE, yet.
+
+Yesterday I discovered a serious discordance between results of testing
+with dieharder, that thinks my crypto RNGS are first rate, and my own
+checks, which say they have cycles and far too many zero and -1 bytes
+and words.
+
+I don't understand wtf? yet, and until I do understand that and its
+sources, until I get the matter resolved, this code should not be used.
+
+If my test code is not producing bogus results , and I can't see how it
+could be, then either dieharder isn't checking something correctly, or I
+am not using it correctly.
+
+I don't see how those could be true, either, although I had some
+suspicions based on how much non-randomness I had to intentionally add
+to a prng stream before dieharder detected it.
+
+Could take some time to understand all this. Another case of assumptions
+that should have been checked much earlier.
+
+I hope this has not caused problems for anyone.
